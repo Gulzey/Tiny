@@ -273,7 +273,7 @@ function renderLogin(): void {
       'muted',
       authCreate
         ? 'Create a test account on your Tiny server.'
-        : 'Sign in to your local Tiny server.',
+        : 'Sign in to Tiny.',
     ),
   );
   const form = el('form', 'login-form');
