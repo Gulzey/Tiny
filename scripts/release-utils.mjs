@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
-export const RELEASE_REPOSITORY = 'Gulzey/Tiny-Releases';
+export const RELEASE_REPOSITORY = 'Gulzey/Tinycom';
 export const UPDATE_ENDPOINT = `https://github.com/${RELEASE_REPOSITORY}/releases/latest/download/latest.json`;
 
 function validVersion(version) {

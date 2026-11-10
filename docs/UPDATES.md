@@ -6,13 +6,13 @@ The client checks once at startup, without a background polling loop. It can dow
 
 ## Distribution
 
-Application source stays in the private `Gulzey/Tiny` repository. The planned public `Gulzey/Tiny-Releases` repository contains downloadable release artifacts, not source, credentials, server databases, or private environment files. Publication of that separate public repository/release requires the owner's approval; building locally does not publish anything.
+Application source and public release artifacts live in `Gulzey/Tinycom`. GitHub Releases contain only the reviewed installer, signature, and updater manifest; credentials, server databases, private environment files, and signing keys are never uploaded.
 
 The installed updater reads:
 
-`https://github.com/Gulzey/Tiny-Releases/releases/latest/download/latest.json`
+`https://github.com/Gulzey/Tinycom/releases/latest/download/latest.json`
 
-Each manifest points to its version's `Tiny-Setup.exe` and includes the generated signature content. Both URLs use HTTPS. The updater needs no GitHub token; a private GitHub release cannot serve unauthenticated friends. Until public artifacts are published, update checks cannot download a release from this planned endpoint.
+Each manifest points to its version's `Tiny-Setup.exe` and includes the generated signature content. Both URLs use HTTPS. The public updater needs no GitHub token.
 
 ## Release owner: keep the signing key private
 
@@ -47,13 +47,11 @@ See the [official Tauri updater documentation](https://v2.tauri.app/plugin/updat
 
 ## GitHub Actions stable release
 
-`.github/workflows/release-windows.yml` validates versions, runs unit and browser media tests, builds the NSIS installer, signs the updater artifact, and publishes only the installer, signature, and `latest.json` to `Gulzey/Tiny-Releases` for a `vX.Y.Z` tag. Configure these repository secrets first:
+`.github/workflows/release-windows.yml` validates versions, runs unit and browser media tests, builds the NSIS installer, signs the updater artifact, and publishes only the installer, signature, and `latest.json` to the public `Gulzey/Tinycom` release for a `vX.Y.Z` tag. Configure these repository secrets first:
 
 - `TAURI_SIGNING_PRIVATE_KEY`: the existing updater private key content.
 - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: its password, or an empty secret for the current unencrypted key.
-- `TINY_RELEASE_TOKEN`: a fine-grained token with **Contents: write** only for the release-only `Gulzey/Tiny-Releases` repository.
-
-Do not use a broad personal token and do not place any secret in workflow YAML. Protect release tags and require review of the workflow run. GitHub Actions stores the key only in the job environment; the workflow uploads no source database, `.env`, or key file.
+  The workflow uses its short-lived GitHub token with `contents: write` for the tagged release. Do not place any long-lived token or secret in workflow YAML. Protect release tags and require review of the workflow run. GitHub Actions stores the signing key only in the job environment; the workflow uploads no source database, `.env`, or key file.
 
 Before tagging, merge the reviewed development branch to `main`, set matching versions in all three version files, and test the locally signed installer. Then:
 

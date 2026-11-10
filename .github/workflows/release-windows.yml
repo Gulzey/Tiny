@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   windows-release:
@@ -64,6 +64,6 @@ jobs:
         if: github.ref_type == 'tag'
         shell: pwsh
         env:
-          GH_TOKEN: ${{ secrets.TINY_RELEASE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create '${{ github.ref_name }}' --repo Gulzey/Tiny-Releases --title 'Tiny ${{ github.ref_name }}' --notes "Signed stable Windows release from ${{ github.repository }}@${{ github.sha }}" release/Tiny-Setup.exe release/Tiny-Setup.exe.sig release/latest.json
+          gh release create '${{ github.ref_name }}' --repo '${{ github.repository }}' --title 'Tiny ${{ github.ref_name }}' --notes "Signed stable Windows release from ${{ github.repository }}@${{ github.sha }}" release/Tiny-Setup.exe release/Tiny-Setup.exe.sig release/latest.json

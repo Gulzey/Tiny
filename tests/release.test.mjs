@@ -25,7 +25,7 @@ test('release manifest embeds signature content and a version-specific HTTPS ins
   assert.equal(manifest.platforms['windows-x86_64'].signature, signature);
   assert.equal(
     manifest.platforms['windows-x86_64'].url,
-    'https://github.com/Gulzey/Tiny-Releases/releases/download/v0.2.0/Tiny-Setup.exe',
+    'https://github.com/Gulzey/Tinycom/releases/download/v0.2.0/Tiny-Setup.exe',
   );
   assert.equal(manifest.pub_date, '2026-11-10T12:00:00.000Z');
   assert.equal(manifest.version, '0.2.0');
