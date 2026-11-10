@@ -1,0 +1,126 @@
+import { test, expect } from '@playwright/test';
+
+test('grey-blue dark mode persists through reload and sign-in', async ({
+  page,
+  request,
+}) => {
+  const handle = `night_${Date.now().toString(36)}`;
+  await request.post('http://127.0.0.1:8878/api/auth/local', {
+    data: { handle, password: 'test-password', create: true },
+  });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Dark mode', exact: true }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await expect(
+    page.getByRole('button', { name: 'Light mode', exact: true }),
+  ).toHaveAttribute('aria-pressed', 'true');
+  await page.reload();
+  await expect(
+    page.getByRole('button', { name: 'Light mode', exact: true }),
+  ).toBeVisible();
+  await page.getByText('Server connection', { exact: true }).click();
+  await page.getByLabel('Server URL').fill('http://127.0.0.1:8878');
+  await page.getByLabel('Handle', { exact: true }).fill(handle);
+  await page.getByLabel('Password', { exact: true }).fill('test-password');
+  await page
+    .getByRole('button', { name: 'Sign in locally', exact: true })
+    .click();
+  await expect(
+    page.getByRole('button', { name: 'Edit profile' }),
+  ).toBeVisible();
+  await expect(page.locator('.conversation')).toHaveCSS(
+    'background-color',
+    'rgb(32, 43, 56)',
+  );
+  await page.getByRole('button', { name: 'Edit profile' }).click();
+  await expect(page.getByRole('dialog')).toHaveCSS(
+    'background-color',
+    'rgb(37, 50, 65)',
+  );
+  await page.screenshot({ path: 'test-results/tiny-dark.png' });
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Close', exact: true })
+    .click();
+  await page.getByRole('button', { name: 'Light mode', exact: true }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+});
+
+test('background messages are stored without repainting and appear on return', async ({
+  page,
+  request,
+}) => {
+  const suffix = Date.now().toString(36);
+  const users = [];
+  for (const handle of [`idle_a_${suffix}`, `idle_b_${suffix}`]) {
+    const response = await request.post(
+      'http://127.0.0.1:8878/api/auth/local',
+      { data: { handle, password: 'test-password', create: true } },
+    );
+    users.push(await response.json());
+  }
+  const auth = (i) => ({ Authorization: `Bearer ${users[i].token}` });
+  await request.post('http://127.0.0.1:8878/api/friends', {
+    headers: auth(0),
+    data: { handle: users[1].user.handle },
+  });
+  const room = await (
+    await request.post('http://127.0.0.1:8878/api/conversations', {
+      headers: auth(0),
+      data: { memberIds: [users[1].user.id] },
+    })
+  ).json();
+  await page.goto('/');
+  await page.getByText('Server connection', { exact: true }).click();
+  await page.getByLabel('Server URL').fill('http://127.0.0.1:8878');
+  await page.getByLabel('Handle', { exact: true }).fill(users[0].user.handle);
+  await page.getByLabel('Password', { exact: true }).fill('test-password');
+  await page
+    .getByRole('button', { name: 'Sign in locally', exact: true })
+    .click();
+  await page
+    .getByRole('button', {
+      name: `Open ${users[1].user.displayName}`,
+      exact: true,
+    })
+    .click();
+  await expect(
+    page.getByRole('button', { name: 'Start call', exact: true }),
+  ).toBeEnabled();
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'hidden', {
+      configurable: true,
+      get: () => true,
+    });
+    document.dispatchEvent(new Event('visibilitychange'));
+    window.backgroundMutations = 0;
+    new MutationObserver(
+      (records) => (window.backgroundMutations += records.length),
+    ).observe(document.querySelector('#app'), {
+      childList: true,
+      attributes: true,
+      subtree: true,
+      characterData: true,
+    });
+  });
+  const text = `Delivered while gaming ${suffix}`;
+  await request.post(
+    `http://127.0.0.1:8878/api/conversations/${room.id}/messages`,
+    { headers: auth(1), data: { body: text, clientId: crypto.randomUUID() } },
+  );
+  // Ensure the websocket event has arrived without a foreground paint.
+  await page.waitForTimeout(250);
+  expect(await page.evaluate(() => window.backgroundMutations)).toBe(0);
+  await expect(page.getByRole('log').getByText(text)).toHaveCount(0);
+  await page.evaluate(() => {
+    delete document.hidden;
+    Object.defineProperty(document, 'hasFocus', {
+      configurable: true,
+      value: () => true,
+    });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await expect(
+    page.getByRole('log').getByText(text, { exact: true }),
+  ).toBeVisible();
+});
