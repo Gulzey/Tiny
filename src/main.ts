@@ -48,6 +48,10 @@ const serverUrl =
   import.meta.env.DEV && import.meta.env.VITE_TINY_SERVER_URL
     ? new URL(import.meta.env.VITE_TINY_SERVER_URL).origin
     : productionServer;
+const audioInputKey = `tiny.audio-input:${serverUrl}`;
+const audioOutputKey = `tiny.audio-output:${serverUrl}`;
+let audioInputId = localStorage.getItem(audioInputKey) || '';
+let audioOutputId = localStorage.getItem(audioOutputKey) || '';
 const tokenStorage = tauriClient ? localStorage : sessionStorage;
 let token = tokenStorage.getItem(`tiny.token:${serverUrl}`) || '';
 let data: State | null = null;
@@ -236,6 +240,7 @@ function newCallEngine(): void {
     onError: showError,
     refreshIce,
   });
+  void calls.setAudioInput(audioInputId);
   calls.setBackgrounded(!activity.active);
 }
 newCallEngine();
@@ -548,6 +553,7 @@ function renderSidebar(): void {
   const bottom = el('div', 'sidebar-bottom');
   bottom.append(
     createThemeToggle(),
+    button('Settings', openSettings, 'text-button'),
     button('Check updates', () => checkForUpdates(), 'text-button'),
     button('Sign out', () => signOut(), 'text-button'),
   );
@@ -1171,6 +1177,144 @@ function openProfile(): void {
   body.append(form);
 }
 
+type AudioSinkElement = HTMLMediaElement & {
+  setSinkId?: (deviceId: string) => Promise<void>;
+};
+
+function supportsAudioOutputSelection(): boolean {
+  return (
+    typeof (HTMLMediaElement.prototype as AudioSinkElement).setSinkId ===
+    'function'
+  );
+}
+
+async function applyAudioOutput(node: HTMLMediaElement): Promise<void> {
+  if (!(node instanceof HTMLAudioElement)) return;
+  const sink = node as AudioSinkElement;
+  if (!sink.setSinkId) return;
+  await sink.setSinkId(audioOutputId);
+}
+
+async function selectAudioOutput(deviceId: string): Promise<void> {
+  const selected = String(deviceId || '');
+  if (selected && !supportsAudioOutputSelection())
+    throw new Error(
+      'Speaker selection is unavailable in this browser. Tiny will use the Windows default output.',
+    );
+  const previous = audioOutputId;
+  audioOutputId = selected;
+  try {
+    await Promise.all([...mediaNodes.values()].map(applyAudioOutput));
+    localStorage.setItem(audioOutputKey, selected);
+  } catch (error) {
+    audioOutputId = previous;
+    throw new Error(
+      error instanceof Error
+        ? `Could not use that speaker: ${error.message}`
+        : 'Could not use that speaker.',
+    );
+  }
+}
+
+function openSettings(): void {
+  const { body, close } = modal('Settings');
+  const copy = el(
+    'p',
+    'muted',
+    'Choose the devices Tiny uses for voice calls. Changes apply immediately to an active call.',
+  );
+  const form = el('form', 'stack voice-settings');
+  const inputLabel = el('label', 'field', 'Voice input');
+  const inputSelect = el('select');
+  inputSelect.name = 'audioInput';
+  const outputLabel = el('label', 'field', 'Voice output');
+  const outputSelect = el('select');
+  outputSelect.name = 'audioOutput';
+  const help = el('p', 'quiet', 'Loading available audio devicesâ€¦');
+  const refresh = button('Refresh devices', async () => {
+    refresh.disabled = true;
+    try {
+      const permission = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: false,
+      });
+      permission.getTracks().forEach((track) => track.stop());
+      await loadDevices();
+    } catch (error) {
+      showError(error);
+    } finally {
+      refresh.disabled = false;
+    }
+  });
+  const save = el('button', 'button primary', 'Save voice settings');
+  save.type = 'submit';
+
+  const fill = (
+    select: HTMLSelectElement,
+    devices: MediaDeviceInfo[],
+    selected: string,
+    fallback: string,
+  ) => {
+    select.replaceChildren();
+    const defaultOption = el('option');
+    defaultOption.value = '';
+    defaultOption.textContent = fallback;
+    select.append(defaultOption);
+    devices.forEach((device, index) => {
+      const option = el('option');
+      option.value = device.deviceId;
+      option.textContent = device.label || `${fallback} ${index + 1}`;
+      select.append(option);
+    });
+    if (selected && !devices.some((device) => device.deviceId === selected)) {
+      const unavailable = el('option');
+      unavailable.value = selected;
+      unavailable.textContent = 'Previously selected device (unavailable)';
+      select.append(unavailable);
+    }
+    select.value = selected;
+  };
+
+  const loadDevices = async () => {
+    if (!navigator.mediaDevices?.enumerateDevices) {
+      throw new Error('Audio device selection is unavailable in this window.');
+    }
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const inputs = devices.filter((device) => device.kind === 'audioinput');
+    const outputs = devices.filter((device) => device.kind === 'audiooutput');
+    fill(inputSelect, inputs, audioInputId, 'Windows default microphone');
+    fill(outputSelect, outputs, audioOutputId, 'Windows default speaker');
+    outputSelect.disabled = !supportsAudioOutputSelection();
+    if (outputSelect.disabled) outputSelect.value = '';
+    help.textContent = supportsAudioOutputSelection()
+      ? inputs.some((device) => device.label)
+        ? 'Tiny remembers these choices on this PC.'
+        : 'Use Refresh devices to allow access and show device names.'
+      : 'This browser does not support speaker selection; Windows default output will be used.';
+  };
+
+  inputLabel.append(inputSelect);
+  outputLabel.append(outputSelect);
+  form.append(inputLabel, outputLabel, help, refresh, save);
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    save.disabled = true;
+    try {
+      if (!(await calls.setAudioInput(inputSelect.value))) return;
+      audioInputId = inputSelect.value;
+      localStorage.setItem(audioInputKey, audioInputId);
+      await selectAudioOutput(outputSelect.value);
+      close();
+    } catch (error) {
+      if (!(error instanceof DOMException)) showError(error);
+    } finally {
+      save.disabled = false;
+    }
+  });
+  body.append(copy, form);
+  void loadDevices().catch(showError);
+}
+
 function renderCall(): void {
   if (deferPaint()) return;
   const maybePanel = document.querySelector<HTMLElement>('#call-panel');
@@ -1287,6 +1431,7 @@ function renderCall(): void {
       node.muted = local;
       mediaNodes.set(key, node);
       media!.append(node);
+      if (!video && !local) void applyAudioOutput(node).catch(showError);
     }
     if (node.srcObject !== stream) {
       node.srcObject = stream;

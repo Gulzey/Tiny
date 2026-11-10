@@ -1,6 +1,6 @@
 [package]
 name = "tiny"
-version = "0.2.0"
+version = "0.2.1"
 description = "A little place to keep in touch"
 authors = ["Tiny contributors"]
 edition = "2021"

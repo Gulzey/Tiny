@@ -142,6 +142,22 @@ test('mute controls the real microphone track and leaving releases it', async (t
   assert.equal(sent.at(-1).type, 'call:leave');
 });
 
+test('selected voice input is used when joining a call', async (t) => {
+  const microphone = track();
+  let constraints;
+  const { calls } = fixture(t, {
+    getUserMedia: async (requested) => {
+      constraints = requested;
+      return stream(microphone);
+    },
+  });
+  assert.equal(await calls.setAudioInput('usb-headset-mic'), true);
+  await calls.join('room-1');
+  assert.deepEqual(constraints.audio.deviceId, { exact: 'usb-headset-mic' });
+  assert.equal(constraints.audio.echoCancellation, true);
+  assert.equal(constraints.audio.noiseSuppression, true);
+});
+
 test('permission denial clears joining state and presents an actionable error', async (t) => {
   const { calls, sent, errors } = fixture(t, {
     getUserMedia: async () => {
@@ -227,6 +243,12 @@ function fakePeerConnections() {
     restartCount = 0;
     replacements = [];
     messages = [];
+    audioSender = {
+      track: null,
+      replaceTrack: async (track) => {
+        this.audioSender.track = track;
+      },
+    };
     sender = {
       track: null,
       replaceTrack: async (track) => {
@@ -247,6 +269,11 @@ function fakePeerConnections() {
     }
     addTrack(track) {
       this.audio = track;
+      this.audioSender.track = track;
+      return this.audioSender;
+    }
+    getSenders() {
+      return [this.audioSender, this.sender];
     }
     addTransceiver() {
       return { sender: this.sender };
@@ -349,6 +376,26 @@ async function joinWithPeer(calls, peerId = 'remote') {
     userId: peerId,
   });
 }
+
+test('changing voice input during a call replaces the live sender', async (t) => {
+  const original = track();
+  const replacement = track();
+  let captures = 0;
+  const { connections, PeerConnection } = fakePeerConnections();
+  const { calls } = fixture(
+    t,
+    {
+      getUserMedia: async () =>
+        stream(captures++ === 0 ? original : replacement),
+    },
+    PeerConnection,
+  );
+  await joinWithPeer(calls);
+  assert.equal(await calls.setAudioInput('headset-microphone'), true);
+  assert.equal(connections[0].audioSender.track, replacement);
+  assert.equal(original.stopped, true);
+  assert.equal(replacement.stopped, false);
+});
 
 async function flushVideoChanges() {
   // Track updates use a promise queue, never a background timer.

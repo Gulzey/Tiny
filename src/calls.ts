@@ -50,6 +50,7 @@ export class TinyCalls {
   private iceServers: RTCIceServer[] = [];
   private forceRelay = false;
   private microphone: MediaStream | null = null;
+  private audioInputId = '';
   private peerId = '';
   private generation = 0;
   private sharingPending = false;
@@ -72,6 +73,73 @@ export class TinyCalls {
     if (this.backgrounded === backgrounded) return;
     this.backgrounded = backgrounded;
     for (const peer of this.peers.values()) this.notifyVideoPreference(peer);
+  }
+
+  async setAudioInput(deviceId: string) {
+    const selected = String(deviceId || '');
+    if (!this.state.conversationId || !this.microphone) {
+      this.audioInputId = selected;
+      return true;
+    }
+    const generation = this.generation;
+    try {
+      const replacement = await this.captureMicrophone(selected);
+      if (generation !== this.generation) {
+        replacement.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      const track = replacement.getAudioTracks()[0];
+      if (!track) {
+        replacement.getTracks().forEach((item) => item.stop());
+        throw new Error('The selected microphone did not provide audio.');
+      }
+      track.enabled = !this.state.muted;
+      await Promise.all(
+        [...this.peers.values()].map(async (peer) => {
+          const sender = peer.pc
+            .getSenders()
+            .find((item) => item.track?.kind === 'audio');
+          if (sender) await sender.replaceTrack(track);
+        }),
+      );
+      const previous = this.microphone;
+      this.microphone = replacement;
+      this.audioInputId = selected;
+      this.watchMicrophone(replacement, generation);
+      previous.getTracks().forEach((item) => {
+        item.onended = null;
+        item.stop();
+      });
+      this.changed();
+      return true;
+    } catch (error) {
+      this.error(error, 'Microphone');
+      return false;
+    }
+  }
+
+  private captureMicrophone(deviceId = this.audioInputId) {
+    return navigator.mediaDevices.getUserMedia({
+      audio: {
+        ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+      video: false,
+    });
+  }
+
+  private watchMicrophone(stream: MediaStream, generation: number) {
+    stream.getAudioTracks().forEach((track) => {
+      track.onended = () => {
+        if (generation !== this.generation) return;
+        this.leave();
+        this.options.onError(
+          'Microphone access ended. Check your device and join again.',
+        );
+      };
+    });
   }
 
   private changed() {
@@ -109,28 +177,13 @@ export class TinyCalls {
           'Voice calls need microphone support and a secure connection. Use localhost or HTTPS in a current browser.',
         );
       }
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-        video: false,
-      });
+      const stream = await this.captureMicrophone();
       if (generation !== this.generation) {
         stream.getTracks().forEach((track) => track.stop());
         return;
       }
       this.microphone = stream;
-      stream.getAudioTracks().forEach((track) => {
-        track.onended = () => {
-          if (generation !== this.generation) return;
-          this.leave();
-          this.options.onError(
-            'Microphone access ended. Check your device and join again.',
-          );
-        };
-      });
+      this.watchMicrophone(stream, generation);
       this.options.send({ type: 'call:join', conversationId });
     } catch (error) {
       if (generation !== this.generation) return;
