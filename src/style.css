@@ -5,7 +5,7 @@
   background: var(--bg);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
-  font-weight: 400;
+  font-weight: 600;
   --bg: #08090b;
   --surface: #0e1014;
   --raised: #15171d;
@@ -108,7 +108,7 @@ textarea {
   padding: 10px 15px;
   background: var(--raised);
   color: var(--text);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   white-space: nowrap;
 }
@@ -131,8 +131,8 @@ textarea {
   padding: 5px 0;
   background: transparent;
   color: var(--muted);
-  font-size: 11px;
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 600;
   white-space: nowrap;
 }
 .text-button:hover {
@@ -143,16 +143,16 @@ textarea {
   color: var(--muted);
 }
 .quiet {
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.65;
 }
 .muted {
-  font-size: 13px;
+  font-size: 15px;
   line-height: 1.7;
 }
 .eyebrow {
   color: var(--accent);
-  font-size: 10px;
+  font-size: 12px;
   letter-spacing: 2px;
   font-weight: 650;
 }
@@ -243,7 +243,7 @@ textarea {
 .welcome-copy {
   max-width: 330px;
   color: var(--muted);
-  font-size: 14px;
+  font-size: 16px;
   line-height: 1.8;
 }
 .welcome > .quiet {
@@ -264,13 +264,13 @@ textarea {
   display: flex;
   width: max-content;
   margin: 0 0 27px auto;
-  font-size: 10px;
+  font-size: 12px;
 }
 .pill {
   display: block;
   margin-bottom: 13px;
   color: var(--violet);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 650;
   letter-spacing: 1.8px;
 }
@@ -291,15 +291,15 @@ textarea {
   flex-direction: column;
   gap: 8px;
   color: var(--text);
-  font-size: 11px;
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 600;
 }
 .field input {
-  font-size: 12px;
-  font-weight: 400;
+  font-size: 14px;
+  font-weight: 600;
 }
 .field input[type='file'] {
-  font-size: 11px;
+  font-size: 13px;
 }
 .field input[type='file']::file-selector-button {
   padding: 7px 9px;
@@ -312,7 +312,7 @@ textarea {
 }
 .server-details {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 13px;
 }
 .server-details summary {
   cursor: pointer;
@@ -324,19 +324,19 @@ textarea {
 }
 .server-details .quiet {
   margin-top: 9px;
-  font-size: 10px;
+  font-size: 12px;
 }
 .login-switch {
   display: block;
   margin: 19px auto 0;
-  font-size: 10px;
+  font-size: 12px;
 }
 .demo-note {
   display: none;
 }
 .demo-note strong {
   color: var(--muted);
-  font-weight: 500;
+  font-weight: 600;
 }
 .demo-note p {
   margin-top: 5px;
@@ -371,7 +371,7 @@ textarea {
   align-items: center;
   gap: 5px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
   white-space: nowrap;
 }
 .connection::before {
@@ -411,15 +411,15 @@ textarea {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
-  font-weight: 550;
+  font-size: 14px;
+  font-weight: 600;
 }
 .profile-names .quiet {
-  font-size: 10px;
+  font-size: 12px;
 }
 .profile-edit {
   color: var(--subtle);
-  font-size: 9px;
+  font-size: 11px;
 }
 .avatar {
   display: inline-flex;
@@ -433,7 +433,7 @@ textarea {
   border-radius: 10px;
   background: var(--raised);
   color: var(--violet);
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 600;
 }
 .avatar img {
@@ -445,7 +445,7 @@ textarea {
   width: 28px;
   height: 28px;
   border-radius: 8px;
-  font-size: 12px;
+  font-size: 14px;
 }
 .avatar.large {
   width: 74px;
@@ -466,13 +466,13 @@ textarea {
 }
 .list-heading h2 {
   color: var(--subtle);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 650;
   letter-spacing: 1.15px;
   text-transform: uppercase;
 }
 .list-heading .text-button {
-  font-size: 10px;
+  font-size: 12px;
 }
 .chat-list {
   display: flex;
@@ -510,20 +510,20 @@ textarea {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
-  font-weight: 550;
+  font-size: 14px;
+  font-weight: 600;
 }
 .chat-preview {
   overflow: hidden;
   max-width: 155px;
   color: var(--subtle);
-  font-size: 10px;
+  font-size: 12px;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 .call-dot {
   color: var(--accent);
-  font-size: 8px;
+  font-size: 10px;
 }
 .friend-list {
   display: flex;
@@ -537,7 +537,7 @@ textarea {
   padding: 9px 10px;
   background: var(--surface);
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
   text-align: left;
 }
 .request-summary:hover {
@@ -555,7 +555,7 @@ textarea {
   padding: 8px 9px;
   background: transparent;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 13px;
   text-align: left;
 }
 .friend-row:hover {
@@ -581,7 +581,7 @@ textarea {
 .sidebar-empty {
   padding: 10px;
   color: var(--subtle);
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.8;
 }
 .sidebar-bottom {
@@ -594,7 +594,7 @@ textarea {
   padding: 28px 9px 0;
 }
 .sidebar-bottom .text-button {
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .conversation {
@@ -630,12 +630,12 @@ textarea {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  font-size: 10px;
+  font-size: 12px;
 }
 .call-button {
   padding: 9px 13px;
   color: var(--accent);
-  font-size: 11px;
+  font-size: 13px;
 }
 .message-area {
   flex: 1;
@@ -671,7 +671,7 @@ textarea {
 .empty-state p {
   max-width: 300px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.85;
 }
 .empty-state .button {
@@ -703,7 +703,7 @@ textarea {
   align-items: center;
   gap: 10px;
   margin-bottom: 7px;
-  font-size: 11px;
+  font-size: 13px;
 }
 .message-meta strong {
   color: var(--text);
@@ -714,11 +714,11 @@ textarea {
 }
 .message-meta time {
   color: var(--subtle);
-  font-size: 9px;
+  font-size: 11px;
 }
 .message-body {
   color: var(--text);
-  font-size: 13px;
+  font-size: 15px;
   line-height: 1.8;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -730,7 +730,7 @@ textarea {
 .loading {
   padding: 20px;
   color: var(--subtle);
-  font-size: 12px;
+  font-size: 14px;
   text-align: center;
 }
 .composer-host {
@@ -756,7 +756,7 @@ textarea {
   border-radius: 4px;
   padding: 10px 9px;
   background: transparent;
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.6;
 }
 .composer textarea:focus {
@@ -764,12 +764,12 @@ textarea {
 }
 .composer .button {
   padding: 11px 17px;
-  font-size: 11px;
+  font-size: 13px;
 }
 .composer-hint {
   margin-top: 8px;
   color: var(--subtle);
-  font-size: 9px;
+  font-size: 11px;
   text-align: right;
 }
 
@@ -800,7 +800,7 @@ textarea {
 }
 .modal-body > .muted {
   margin-bottom: 21px;
-  font-size: 12px;
+  font-size: 14px;
 }
 .stack {
   display: flex;
@@ -822,7 +822,7 @@ textarea {
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--raised);
-  font-size: 12px;
+  font-size: 14px;
   cursor: pointer;
 }
 .choose-friend:has(input:checked) {
@@ -836,7 +836,7 @@ textarea {
 .request-heading {
   margin: 20px 0 9px;
   color: var(--subtle);
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 1.2px;
   text-transform: uppercase;
 }
@@ -869,12 +869,12 @@ textarea {
 }
 .request-person strong {
   overflow: hidden;
-  font-size: 11px;
+  font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .request-person .quiet {
-  font-size: 9px;
+  font-size: 11px;
 }
 .request-actions {
   display: flex;
@@ -900,7 +900,7 @@ textarea {
   background: var(--raised);
   color: var(--text);
   box-shadow: 0 5px 25px #0004;
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.6;
 }
 .notice .text-button {
@@ -930,17 +930,17 @@ textarea {
 }
 .call-info strong {
   color: var(--accent);
-  font-size: 11px;
-  font-weight: 550;
+  font-size: 13px;
+  font-weight: 600;
 }
 .call-info .quiet {
-  font-size: 10px;
+  font-size: 12px;
 }
 .small-button,
 .danger,
 .stop-share {
   padding: 9px 10px;
-  font-size: 10px;
+  font-size: 12px;
 }
 .danger,
 .stop-share {
@@ -956,7 +956,7 @@ textarea {
   gap: 12px;
   margin-top: 12px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 .call-media {
   display: flex;
@@ -981,7 +981,7 @@ textarea {
 .call-diagnostics {
   margin-top: 10px;
   color: var(--subtle);
-  font-size: 9px;
+  font-size: 11px;
 }
 .call-diagnostics summary {
   width: max-content;
@@ -989,7 +989,7 @@ textarea {
 }
 .call-diagnostics p {
   margin-top: 4px;
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .update-strip {
@@ -1008,7 +1008,7 @@ textarea {
   background: var(--raised);
   color: var(--text);
   box-shadow: 0 10px 35px #0008;
-  font-size: 10px;
+  font-size: 12px;
 }
 .update-strip[hidden] {
   display: none;
@@ -1018,7 +1018,7 @@ textarea {
   border-radius: 5px;
   background: var(--primary);
   color: var(--primary-text);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 650;
   white-space: nowrap;
 }
@@ -1064,7 +1064,7 @@ textarea {
     font-size: 42px;
   }
   .welcome-copy {
-    font-size: 12px;
+    font-size: 14px;
   }
   .welcome .brand {
     margin-bottom: 60px;
@@ -1090,7 +1090,7 @@ textarea {
     height: 27px;
   }
   .connection {
-    font-size: 8px;
+    font-size: 10px;
   }
   .chat-preview {
     max-width: 120px;
@@ -1159,16 +1159,16 @@ textarea {
     display: none;
   }
   .profile-names strong {
-    font-size: 10px;
+    font-size: 12px;
   }
   .profile-names .quiet {
-    font-size: 9px;
+    font-size: 11px;
   }
   .avatar {
     width: 27px;
     height: 27px;
     border-radius: 8px;
-    font-size: 12px;
+    font-size: 14px;
   }
   .list-heading {
     gap: 4px;
@@ -1176,11 +1176,11 @@ textarea {
     margin-right: 5px;
   }
   .list-heading h2 {
-    font-size: 8px;
+    font-size: 10px;
     letter-spacing: 0.5px;
   }
   .list-heading .text-button {
-    font-size: 9px;
+    font-size: 11px;
   }
   .chat-row {
     gap: 6px;
@@ -1190,28 +1190,28 @@ textarea {
     display: none;
   }
   .chat-copy strong {
-    font-size: 10px;
+    font-size: 12px;
   }
   .chat-preview {
     max-width: 110px;
-    font-size: 9px;
+    font-size: 11px;
   }
   .friend-row {
     gap: 7px;
     padding: 7px 5px;
-    font-size: 10px;
+    font-size: 12px;
   }
   .friend-row .avatar {
     width: 22px;
     height: 22px;
-    font-size: 10px;
+    font-size: 12px;
   }
   .sidebar-bottom {
     padding-left: 5px;
     padding-right: 5px;
   }
   .sidebar-bottom .text-button {
-    font-size: 9px;
+    font-size: 11px;
   }
   .conversation-header {
     height: 74px;
@@ -1220,14 +1220,14 @@ textarea {
     padding: 16px 13px;
   }
   .header-copy h1 {
-    font-size: 15px;
+    font-size: 17px;
   }
   .header-copy p {
-    font-size: 9px;
+    font-size: 11px;
   }
   .call-button {
     padding: 8px;
-    font-size: 9px;
+    font-size: 11px;
   }
   .message-area {
     padding: 20px 13px;
@@ -1239,7 +1239,7 @@ textarea {
     display: none;
   }
   .message-body {
-    font-size: 12px;
+    font-size: 14px;
   }
   .composer-host {
     padding: 7px 11px 14px;
@@ -1250,24 +1250,24 @@ textarea {
   }
   .composer textarea {
     padding: 9px 4px;
-    font-size: 11px;
+    font-size: 13px;
   }
   .composer .button {
     padding: 10px;
-    font-size: 10px;
+    font-size: 12px;
   }
   .empty-state h2 {
     font-size: 24px;
   }
   .empty-state p {
-    font-size: 11px;
+    font-size: 13px;
   }
   .empty-state .eyebrow {
-    font-size: 8px;
+    font-size: 10px;
   }
   .empty-state .button {
     padding: 10px;
-    font-size: 10px;
+    font-size: 12px;
   }
   .call-panel {
     padding: 12px;
@@ -1279,7 +1279,7 @@ textarea {
     min-width: 100%;
   }
   .call-participants {
-    font-size: 9px;
+    font-size: 11px;
   }
   .notices {
     left: 15px;
@@ -1287,6 +1287,6 @@ textarea {
     bottom: 15px;
   }
   .notice {
-    font-size: 11px;
+    font-size: 13px;
   }
 }
