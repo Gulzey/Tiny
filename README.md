@@ -8,13 +8,15 @@ No paid hosting, Google account, SMS service, or external database is needed to 
 
 The ready-to-send files are in **release**:
 
-Download the installer and host package from [GitHub Releases](https://github.com/Gulzey/Tiny/releases/latest). Generated executables stay out of the source history.
+The production installer connects permanently to `https://tinybros.duckdns.org`. Ordinary users never enter an IP, port, VPN address, or server name; login and registration contain no server field.
 
 - **Tiny-Setup.exe** goes to friends. Install and open Tiny; no development tools or command scripts are needed.
 - **Tiny-Host.zip** goes only to the host. Extract it and double-click **Tiny-Server.exe**. No Node installation is needed on the host PC.
 - [Sharing and hosting guide](docs/SHARING.md) explains server addresses, LAN/firewall setup, and connections outside your network.
 
-Use **Dark mode** on the sign-in screen or at the bottom of the friends panel for the saved grey-blue theme. Background windows defer UI updates and pause incoming screen video while keeping voice connected. Active calls and screen capture still consume resources; use a release build for gaming.
+The compact black gaming theme is the default. Light mode remains optional in the signed-in sidebar. Background windows defer UI updates and pause incoming screen video while keeping voice connected. Active calls and screen capture still consume resources; use a release build for gaming.
+
+Tiny 0.2 uses signed Tauri updater artifacts. It checks once when the Windows app opens, downloads a trusted update, and offers **Restart to update**. See [desktop updates](docs/UPDATES.md). Installations of 0.1 need one final manual 0.2 install because 0.1 contains no updater.
 
 ## Run from source (developers)
 
@@ -61,16 +63,16 @@ The executable is `src-tauri\target\release\tiny.exe`; the installer goes in `sr
 
 `npm.cmd run seed` creates **alice**, **bob**, and **charlie**, already friends with a group chat. Their initial password is **tiny-local-demo**. Seeding again preserves existing passwords and messages. These are test accounts; use different passwords for accounts you care about.
 
-1. Sign in as Alice using **Local test sign-in**. The default server address is `http://127.0.0.1:8787`.
+1. Source tests can set `VITE_TINY_SERVER_URL` while running Vite in development mode. Production builds ignore that override and always use `https://tinybros.duckdns.org`.
 2. Open a separate private/incognito browser window at that address and sign in as Bob. Separate browser profiles keep their sign-ins independent; ordinary tabs share stored login credentials.
 3. Open the seeded group, or start a direct chat from a friend. Send messages in both windows, reload, and confirm the history remains.
-4. Use **Create a test account** for a new handle and password. Add that handle as a friend from Alice, then start a chat. For this local prototype, adding a friend immediately connects both accounts; there is no approval workflow.
+4. Create an account with a password of at least 12 characters. Send a friend request by handle; the other account sees separate incoming/outgoing requests and must Accept or Decline. The sender can Cancel a pending request.
 5. Create a group by selecting two or three friends. Chats and calls support up to **four people total**.
 6. Join a call in both windows, allow the microphone, and use headphones to avoid feedback. Mute and leave controls operate the real tracks and connections.
 7. During the call, share a screen or window through the system picker. **Stop sharing** stops the capture tracks immediately; the system picker's stop control also works. Screen sharing sends video, without system audio or camera video.
 8. Open your profile to change your display name or choose a PNG, JPEG, or GIF up to **2 MiB**. Images are stored in the server's SQLite database and shared with your friends and chat participants. Animated GIFs may animate depending on the webview.
 
-There are no fake Google/mobile buttons. Local passwords are salted and hashed, and sessions expire after seven days. This is a development sign-in system without account recovery, abuse moderation, or verified identities.
+There are no fake Google/mobile buttons. Passwords use salted scrypt hashes, sessions expire after seven days, and login/registration are rate-limited. Account recovery, verified identities, blocking, and moderation are not implemented, so keep the current Caddy IP allowlist until the remaining controls in [Security status](docs/SECURITY.md) are addressed.
 
 ## Development and data
 
@@ -78,7 +80,7 @@ For automatic frontend reloads, keep `npm.cmd run server` in one terminal and ru
 
 SQLite creates `data\tiny.sqlite` on first use. It contains chat history, profile pictures, password hashes, and session hashes. The database is not encrypted at rest. Stop the server before backing up the whole `data` folder. To start over, stop it and rename `data` to `data-backup`, then seed again. The app has no cloud sync or telemetry.
 
-Copy `.env.example` to `.env` to change server settings. Node loads it when starting the server or seed command. You can change the server URL at the sign-in screen without rebuilding the client. A different server has separate accounts and data. For the launcher, set `$env:TINY_APP_URL='http://127.0.0.1:8787'` before `npm.cmd start` to change its address; the launcher reads this environment variable directly, not from `.env`.
+Copy `.env.example` to `.env` to change backend development settings. Node loads it when starting the server or seed command. The production Windows client does not read this file and always connects to `https://tinybros.duckdns.org`.
 
 ## Other computers and call networks
 
@@ -88,7 +90,9 @@ For trusted local network testing, set `TINY_HOST=0.0.0.0` in `.env`, restart th
 
 **Microphone and screen capture require a secure frontend context.** Localhost works, but an ordinary HTTP LAN browser page generally does not. The installed Windows app embeds its interface at Tauri's trusted localhost origin and supports a reachable HTTP API on a trusted LAN, so friends need no developer server. This uses [Tauri's default Windows protocol scheme](https://v2.tauri.app/reference/config/), with native media availability covered by the packaged-app test. For an untrusted/remote network, use an HTTPS API. A hosted HTTPS browser frontend also needs HTTPS/WSS APIs. The Node server is HTTP; put it behind a TLS reverse proxy for remote hosting.
 
-WebRTC tries direct peer connections; the server exchanges connection information and does not carry media. No STUN/TURN is configured by default, so same-PC tests need no external service. Between PCs, router NAT, firewalls, VPNs, or blocked UDP can prevent connections. A reachable **STUN** server helps discover routes; **TURN** relays media when direct routes fail. Configure `TINY_ICE_SERVERS` with your own service addresses and credentials. You can self-host [coturn](https://github.com/coturn/coturn); it requires a reachable machine and firewall/relay-port configuration. TURN is not needed merely to try Tiny on one PC. See [WebRTC's peer-connection guide](https://webrtc.org/getting-started/peer-connections).
+WebRTC tries direct peer connections first. A reachable **STUN** server discovers routes; a correctly configured **TURN** server relays voice and screen video when direct connectivity is blocked. The backend issues short-lived coturn REST credentials only to authenticated users, so the TURN shared secret never enters frontend source or API responses. Configure `TINY_STUN_URLS`, `TINY_TURN_URLS`, and the server-only `TINY_TURN_SECRET`. Follow the exact [Oracle and coturn deployment guide](docs/ORACLE_DEPLOYMENT.md); STUN alone does not guarantee connectivity.
+
+For a reviewed worldwide launch without changing the live VM automatically, follow [Public deployment review](docs/PUBLIC_DEPLOYMENT.md). It removes only the Caddy IP restriction, keeps Node and database ports private, restricts SSH, and lists the matching OCI/UFW/TURN rules.
 
 Public hosting later also needs a reachable domain/server, HTTPS/WSS, production authentication, backups, account controls, and usually TURN. Do not expose the seeded test server on the public internet. No port forwarding or firewall changes are made by Tiny.
 
@@ -120,4 +124,4 @@ npm.cmd run test:e2e
 
 Tests use isolated databases. Browser tests use synthetic microphone input and Chromium's test screen picker while exercising real WebRTC connections; they cannot prove how a physical microphone sounds or how a remote network behaves. Manually test those on the intended devices. `npm.cmd run format` applies formatting. If Rust is installed, also run `cargo fmt --manifest-path src-tauri/Cargo.toml --check` and `npm.cmd run build:desktop`. On Windows, `npm.cmd run test:desktop` then launches the real release executable with an isolated database and WebView2 profile to check rendering, media API availability, and native-origin access to the server. It enables a temporary debugging port only for that test process, following [Playwright's WebView2 testing approach](https://playwright.dev/docs/webview2).
 
-This first version has no push notifications, attachments, message edit/delete, read receipts, friend requests/blocking, group membership editing, account deletion, camera video, system-audio sharing, or call recovery after a disconnected socket. Reconnecting restores saved chat state; rejoin a dropped call explicitly.
+This version has no push notifications, attachments, message edit/delete, read receipts, blocking, group membership editing, account deletion, camera video, or system-audio sharing. ICE failures get bounded restart attempts, but reconnecting a dropped signalling socket still requires rejoining the call. Automated same-machine media tests do not prove a physical microphone, Oracle firewall, NAT traversal, or real two-network TURN path.

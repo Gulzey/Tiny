@@ -13,6 +13,7 @@ fn sync_activity(window: &tauri::WebviewWindow) {
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .on_page_load(|webview, payload| {
             if payload.event() == tauri::webview::PageLoadEvent::Finished {
                 if let Some(window) = webview.get_webview_window(webview.label()) {

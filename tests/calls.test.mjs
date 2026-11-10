@@ -134,8 +134,11 @@ test('mute controls the real microphone track and leaving releases it', async (t
   assert.equal(microphone.enabled, false);
   calls.toggleMute();
   assert.equal(microphone.enabled, true);
+  calls.toggleDeafen();
+  assert.equal(calls.state.deafened, true);
   calls.leave();
   assert.equal(microphone.stopped, true);
+  assert.equal(calls.state.deafened, false);
   assert.equal(sent.at(-1).type, 'call:leave');
 });
 
@@ -217,6 +220,11 @@ function fakePeerConnections() {
   class PeerConnection {
     signalingState = 'stable';
     connectionState = 'new';
+    iceConnectionState = 'new';
+    remoteDescription = null;
+    localDescription = null;
+    addedCandidates = [];
+    restartCount = 0;
     replacements = [];
     messages = [];
     sender = {
@@ -246,12 +254,85 @@ function fakePeerConnections() {
     createDataChannel() {
       return this.channel;
     }
+    async setRemoteDescription(description) {
+      this.remoteDescription = description;
+    }
+    async addIceCandidate(candidate) {
+      this.addedCandidates.push(candidate);
+    }
+    async setLocalDescription() {
+      this.localDescription = {
+        type: this.remoteDescription?.type === 'offer' ? 'answer' : 'offer',
+        sdp: 'test-sdp',
+        toJSON() {
+          return { type: this.type, sdp: this.sdp };
+        },
+      };
+    }
+    restartIce() {
+      this.restartCount++;
+    }
+    async getStats() {
+      return new Map();
+    }
     close() {
       this.signalingState = 'closed';
     }
   }
   return { connections, PeerConnection };
 }
+
+test('ICE candidates arriving before the remote offer are queued and then applied', async (t) => {
+  const microphone = track();
+  const { connections, PeerConnection } = fakePeerConnections();
+  const { calls, sent, errors } = fixture(
+    t,
+    { getUserMedia: async () => stream(microphone) },
+    PeerConnection,
+  );
+  await joinWithPeer(calls);
+  await calls.handle({
+    type: 'signal',
+    conversationId: 'room-1',
+    from: 'remote',
+    candidate: { candidate: 'candidate:early', sdpMLineIndex: 0 },
+  });
+  assert.equal(connections[0].addedCandidates.length, 0);
+  await calls.handle({
+    type: 'signal',
+    conversationId: 'room-1',
+    from: 'remote',
+    description: { type: 'offer', sdp: 'remote-offer' },
+  });
+  assert.deepEqual(connections[0].addedCandidates, [
+    { candidate: 'candidate:early', sdpMLineIndex: 0 },
+  ]);
+  assert.equal(sent.at(-1).description.type, 'answer');
+  assert.deepEqual(errors, []);
+});
+
+test('a failed ICE route triggers a bounded ICE restart', async (t) => {
+  const microphone = track();
+  const { connections, PeerConnection } = fakePeerConnections();
+  const { calls } = fixture(
+    t,
+    { getUserMedia: async () => stream(microphone) },
+    PeerConnection,
+  );
+  await calls.handle({ type: 'ready', peerId: 'local' });
+  await calls.join('room-1');
+  await calls.handle({
+    type: 'call:joined',
+    conversationId: 'room-1',
+    peers: [{ peerId: 'remote', userId: 'remote' }],
+  });
+  const peer = connections[0];
+  peer.connectionState = 'failed';
+  peer.onconnectionstatechange();
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.equal(peer.restartCount, 1);
+  assert.match(calls.state.peers[0].route, /Retrying/);
+});
 
 async function joinWithPeer(calls, peerId = 'remote') {
   await calls.handle({ type: 'ready', peerId: 'local' });

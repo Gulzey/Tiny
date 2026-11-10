@@ -38,6 +38,13 @@ export function openDatabase(path) {
       user_id TEXT NOT NULL REFERENCES users(id), friend_id TEXT NOT NULL REFERENCES users(id),
       PRIMARY KEY (user_id, friend_id), CHECK (user_id != friend_id)
     );
+    CREATE TABLE IF NOT EXISTS friend_requests (
+      requester_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      recipient_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (requester_id, recipient_id),
+      CHECK (requester_id != recipient_id)
+    );
     CREATE TABLE IF NOT EXISTS conversations (
       id TEXT PRIMARY KEY, title TEXT NOT NULL, is_group INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL
     );
@@ -52,24 +59,44 @@ export function openDatabase(path) {
     );
     CREATE INDEX IF NOT EXISTS messages_conversation ON messages(conversation_id, id);
     CREATE INDEX IF NOT EXISTS members_user ON members(user_id);
+    CREATE INDEX IF NOT EXISTS friend_requests_recipient
+      ON friend_requests(recipient_id, created_at);
   `);
+  const userColumns = db.prepare('PRAGMA table_info(users)').all();
+  if (!userColumns.some((column) => column.name === 'password_version'))
+    db.exec(
+      'ALTER TABLE users ADD COLUMN password_version INTEGER NOT NULL DEFAULT 1',
+    );
   db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(Date.now());
   return db;
 }
 
 export async function createAccount(db, handle, password, displayName) {
   const salt = randomBytes(16).toString('hex');
-  const hash = await scrypt(password, salt, 64);
+  const hash = await scrypt(password, salt, 64, {
+    N: 1 << 15,
+    r: 8,
+    p: 1,
+    maxmem: 64 * 1024 * 1024,
+  });
   const id = randomUUID();
   db.prepare(
-    'INSERT INTO users (id,handle,display_name,password_hash,salt) VALUES (?,?,?,?,?)',
+    'INSERT INTO users (id,handle,display_name,password_hash,salt,password_version) VALUES (?,?,?,?,?,2)',
   ).run(id, handle, displayName, hash.toString('hex'), salt);
   return publicUser(db.prepare('SELECT * FROM users WHERE id=?').get(id));
 }
 
 export async function verifyPassword(row, password) {
   // Do equivalent expensive work for missing accounts to reduce username probing by timing.
-  const hash = await scrypt(password, row?.salt || 'tiny-no-account-salt', 64);
+  const modern = row?.password_version === 2;
+  const hash = await scrypt(
+    password,
+    row?.salt || 'tiny-no-account-salt',
+    64,
+    modern
+      ? { N: 1 << 15, r: 8, p: 1, maxmem: 64 * 1024 * 1024 }
+      : { N: 1 << 14, r: 8, p: 1, maxmem: 32 * 1024 * 1024 },
+  );
   return Boolean(
     row && timingSafeEqual(hash, Buffer.from(row.password_hash, 'hex')),
   );
@@ -77,6 +104,13 @@ export async function verifyPassword(row, password) {
 
 export function issueSession(db, userId) {
   const token = randomBytes(32).toString('base64url');
+  // Bound account session growth before creating a new seven-day session.
+  db.prepare(
+    `DELETE FROM sessions WHERE token_hash IN (
+      SELECT token_hash FROM sessions WHERE user_id=?
+      ORDER BY expires_at DESC LIMIT -1 OFFSET 7
+    )`,
+  ).run(userId);
   db.prepare('INSERT INTO sessions VALUES (?,?,?)').run(
     digest(token),
     userId,

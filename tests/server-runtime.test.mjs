@@ -17,7 +17,7 @@ test('packaged server defaults are loopback, persistent AppData, and no demo acc
     join(env.LOCALAPPDATA, 'Tiny Server', 'tiny.sqlite'),
   );
   assert.equal(settings.localAuth, true);
-  assert.deepEqual(settings.iceServers, []);
+  assert.deepEqual(settings.rtcConfig('user').iceServers, []);
   assert.deepEqual(parseServerArguments([]), {});
 });
 
@@ -74,12 +74,18 @@ test('packaged server rejects malformed switches and settings before opening a d
     /listening address/,
   );
   assert.throws(
-    () => resolveServerSettings({ env: { TINY_ICE_SERVERS: 'broken-json' } }),
-    /JSON array/,
+    () =>
+      resolveServerSettings({
+        env: { TINY_TURN_URLS: 'https://not-turn.example' },
+      }),
+    /TURN/i,
   );
   assert.throws(
-    () => resolveServerSettings({ env: { TINY_ICE_SERVERS: '{}' } }),
-    /RTCIceServer/,
+    () =>
+      resolveServerSettings({
+        env: { TINY_TURN_URLS: 'turn:turn.example', TINY_TURN_SECRET: 'short' },
+      }),
+    /secret/i,
   );
   assert.equal(parseServerArguments(['--seed-only']).seedOnly, true);
 });

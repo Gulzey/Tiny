@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-test('grey-blue dark mode persists through reload and sign-in', async ({
+test('black dark mode is the default and light mode remains optional', async ({
   page,
   request,
 }) => {
@@ -9,33 +9,23 @@ test('grey-blue dark mode persists through reload and sign-in', async ({
     data: { handle, password: 'test-password', create: true },
   });
   await page.goto('/');
-  await page.getByRole('button', { name: 'Dark mode', exact: true }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-  await expect(
-    page.getByRole('button', { name: 'Light mode', exact: true }),
-  ).toHaveAttribute('aria-pressed', 'true');
   await page.reload();
-  await expect(
-    page.getByRole('button', { name: 'Light mode', exact: true }),
-  ).toBeVisible();
-  await page.getByText('Server connection', { exact: true }).click();
-  await page.getByLabel('Server URL').fill('http://127.0.0.1:8878');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await page.getByLabel('Handle', { exact: true }).fill(handle);
   await page.getByLabel('Password', { exact: true }).fill('test-password');
-  await page
-    .getByRole('button', { name: 'Sign in locally', exact: true })
-    .click();
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(
     page.getByRole('button', { name: 'Edit profile' }),
   ).toBeVisible();
   await expect(page.locator('.conversation')).toHaveCSS(
     'background-color',
-    'rgb(32, 43, 56)',
+    'rgb(14, 16, 20)',
   );
   await page.getByRole('button', { name: 'Edit profile' }).click();
   await expect(page.getByRole('dialog')).toHaveCSS(
     'background-color',
-    'rgb(37, 50, 65)',
+    'rgb(14, 16, 20)',
   );
   await page.screenshot({ path: 'test-results/tiny-dark.png' });
   await page
@@ -60,10 +50,14 @@ test('background messages are stored without repainting and appear on return', a
     users.push(await response.json());
   }
   const auth = (i) => ({ Authorization: `Bearer ${users[i].token}` });
-  await request.post('http://127.0.0.1:8878/api/friends', {
+  await request.post('http://127.0.0.1:8878/api/friend-requests', {
     headers: auth(0),
     data: { handle: users[1].user.handle },
   });
+  await request.patch(
+    `http://127.0.0.1:8878/api/friend-requests/${users[0].user.id}`,
+    { headers: auth(1), data: { action: 'accept' } },
+  );
   const room = await (
     await request.post('http://127.0.0.1:8878/api/conversations', {
       headers: auth(0),
@@ -71,13 +65,9 @@ test('background messages are stored without repainting and appear on return', a
     })
   ).json();
   await page.goto('/');
-  await page.getByText('Server connection', { exact: true }).click();
-  await page.getByLabel('Server URL').fill('http://127.0.0.1:8878');
   await page.getByLabel('Handle', { exact: true }).fill(users[0].user.handle);
   await page.getByLabel('Password', { exact: true }).fill('test-password');
-  await page
-    .getByRole('button', { name: 'Sign in locally', exact: true })
-    .click();
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await page
     .getByRole('button', {
       name: `Open ${users[1].user.displayName}`,

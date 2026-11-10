@@ -4,6 +4,8 @@ export interface CallPeer {
   state: string;
   audio: MediaStream | null;
   screen: MediaStream | null;
+  iceState: string;
+  route: string;
 }
 
 interface Peer {
@@ -12,6 +14,7 @@ interface Peer {
   video: RTCRtpTransceiver;
   channel: RTCDataChannel;
   remoteVideo: MediaStream | null;
+  remoteAudio: MediaStream | null;
   remoteSharing: boolean;
   wantsVideo: boolean;
   videoUpdate: Promise<void>;
@@ -20,12 +23,15 @@ interface Peer {
   settingAnswer: boolean;
   allowNegotiation: boolean;
   candidates: RTCIceCandidateInit[];
+  recoveryTimer: ReturnType<typeof setTimeout> | null;
+  recoveryAttempts: number;
 }
 
 interface Options {
   send: (data: any) => void;
   onChange: () => void;
   onError: (message: string) => void;
+  refreshIce?: () => Promise<RTCIceServer[]>;
 }
 
 /** One small mesh call. The server only relays signaling; media uses WebRTC. */
@@ -34,6 +40,7 @@ export class TinyCalls {
     conversationId: null as string | null,
     joining: false,
     muted: false,
+    deafened: false,
     sharing: false,
     peers: [] as CallPeer[],
     localScreen: null as MediaStream | null,
@@ -41,6 +48,7 @@ export class TinyCalls {
 
   private peers = new Map<string, Peer>();
   private iceServers: RTCIceServer[] = [];
+  private forceRelay = false;
   private microphone: MediaStream | null = null;
   private peerId = '';
   private generation = 0;
@@ -49,8 +57,15 @@ export class TinyCalls {
 
   constructor(private options: Options) {}
 
-  configure(iceServers: RTCIceServer[]) {
+  configure(iceServers: RTCIceServer[], forceRelay = false) {
     this.iceServers = iceServers;
+    this.forceRelay = forceRelay;
+    for (const peer of this.peers.values())
+      peer.pc.setConfiguration({
+        ...peer.pc.getConfiguration(),
+        iceServers,
+        iceTransportPolicy: forceRelay ? 'relay' : 'all',
+      });
   }
 
   setBackgrounded(backgrounded: boolean) {
@@ -132,6 +147,7 @@ export class TinyCalls {
     this.state.joining = false;
     this.stopSharing();
     for (const peer of this.peers.values()) {
+      if (peer.recoveryTimer) clearTimeout(peer.recoveryTimer);
       peer.pc.onconnectionstatechange = null;
       peer.pc.onnegotiationneeded = null;
       peer.pc.onicecandidate = null;
@@ -145,6 +161,7 @@ export class TinyCalls {
     });
     this.microphone = null;
     this.state.muted = false;
+    this.state.deafened = false;
     if (conversationId) {
       try {
         this.options.send({ type: 'call:leave', conversationId });
@@ -165,6 +182,12 @@ export class TinyCalls {
     this.microphone
       .getAudioTracks()
       .forEach((track) => (track.enabled = !this.state.muted));
+    this.changed();
+  }
+
+  toggleDeafen() {
+    if (!this.state.conversationId) return;
+    this.state.deafened = !this.state.deafened;
     this.changed();
   }
 
@@ -292,7 +315,12 @@ export class TinyCalls {
   private createPeer(peerId: string, userId: string, offer: boolean) {
     const existing = this.peers.get(peerId);
     if (existing) return existing;
-    const pc = new RTCPeerConnection({ iceServers: this.iceServers });
+    const pc = new RTCPeerConnection({
+      iceServers: this.iceServers,
+      bundlePolicy: 'max-bundle',
+      iceCandidatePoolSize: this.iceServers.length ? 2 : 0,
+      iceTransportPolicy: this.forceRelay ? 'relay' : 'all',
+    });
     this.microphone
       ?.getAudioTracks()
       .forEach((track) => pc.addTrack(track, this.microphone!));
@@ -309,8 +337,17 @@ export class TinyCalls {
       pc,
       video,
       channel,
-      view: { peerId, userId, state: 'connecting', audio: null, screen: null },
+      view: {
+        peerId,
+        userId,
+        state: 'connecting',
+        audio: null,
+        screen: null,
+        iceState: 'new',
+        route: 'Selecting route',
+      },
       remoteVideo: null,
+      remoteAudio: null,
       remoteSharing: false,
       wantsVideo: true,
       videoUpdate: Promise.resolve(),
@@ -319,6 +356,8 @@ export class TinyCalls {
       settingAnswer: false,
       allowNegotiation: offer,
       candidates: [],
+      recoveryTimer: null,
+      recoveryAttempts: 0,
     };
     this.peers.set(peerId, peer);
     if (this.state.sharing) {
@@ -356,9 +395,19 @@ export class TinyCalls {
         this.signal(peerId, { candidate: event.candidate.toJSON() });
     };
     pc.ontrack = (event) => {
-      const stream = new MediaStream([event.track]);
-      if (event.track.kind === 'audio') peer.view.audio = stream;
-      else {
+      if (event.track.kind === 'audio') {
+        if (!peer.remoteAudio) peer.remoteAudio = new MediaStream();
+        if (!peer.remoteAudio.getTracks().includes(event.track))
+          peer.remoteAudio.addTrack(event.track);
+        peer.view.audio = peer.remoteAudio;
+        event.track.onended = () => {
+          peer.remoteAudio?.removeTrack(event.track);
+          if (!peer.remoteAudio?.getAudioTracks().length)
+            peer.view.audio = null;
+          this.changed();
+        };
+      } else {
+        const stream = new MediaStream([event.track]);
         peer.remoteVideo = stream;
         if (peer.remoteSharing) peer.view.screen = stream;
         event.track.onended = () => {
@@ -372,12 +421,24 @@ export class TinyCalls {
       if (this.peers.get(peerId) !== peer) return;
       peer.view.state = pc.connectionState;
       this.changed();
-      if (pc.connectionState === 'connected')
+      if (pc.connectionState === 'connected') {
+        peer.recoveryAttempts = 0;
+        if (peer.recoveryTimer) clearTimeout(peer.recoveryTimer);
+        peer.recoveryTimer = null;
         void this.limitScreenBitrate(peer);
-      if (pc.connectionState === 'failed') {
-        this.options.onError(
-          'The call could not connect to a participant. Check the network and firewall. Calls across different networks may need a configured TURN relay; leave and join to retry.',
-        );
+        void this.updateRoute(peer);
+      }
+      if (pc.connectionState === 'failed')
+        this.scheduleRecovery(peerId, peer, 0);
+      if (pc.connectionState === 'disconnected')
+        this.scheduleRecovery(peerId, peer, 4000);
+    };
+    pc.oniceconnectionstatechange = () => {
+      if (this.peers.get(peerId) !== peer) return;
+      peer.view.iceState = pc.iceConnectionState;
+      this.changed();
+      if (['connected', 'completed'].includes(pc.iceConnectionState)) {
+        void this.updateRoute(peer);
       }
     };
     pc.onnegotiationneeded = () => {
@@ -386,6 +447,64 @@ export class TinyCalls {
     this.changed();
     if (offer) void this.negotiate(peerId, peer);
     return peer;
+  }
+
+  private scheduleRecovery(peerId: string, peer: Peer, delay: number) {
+    if (peer.recoveryTimer || peer.recoveryAttempts >= 2) {
+      if (peer.recoveryAttempts >= 2)
+        this.options.onError(
+          'A call route failed after retrying. The host should verify TURN is reachable, then leave and rejoin the call.',
+        );
+      return;
+    }
+    peer.recoveryTimer = setTimeout(async () => {
+      peer.recoveryTimer = null;
+      if (
+        this.peers.get(peerId) !== peer ||
+        peer.pc.signalingState === 'closed' ||
+        ['connected', 'completed'].includes(peer.pc.iceConnectionState)
+      )
+        return;
+      peer.recoveryAttempts++;
+      peer.view.route = `Retrying connection (${peer.recoveryAttempts}/2)`;
+      try {
+        const refreshed = await this.options.refreshIce?.();
+        if (refreshed) this.configure(refreshed, this.forceRelay);
+      } catch {
+        // A direct route can still recover while the API is temporarily offline.
+      }
+      peer.pc.restartIce();
+      this.changed();
+      void this.negotiate(peerId, peer);
+    }, delay);
+  }
+
+  private async updateRoute(peer: Peer) {
+    try {
+      const stats = await peer.pc.getStats();
+      let pair: any;
+      stats.forEach((report) => {
+        if (
+          report.type === 'candidate-pair' &&
+          report.state === 'succeeded' &&
+          (report.nominated || report.selected)
+        )
+          pair = report;
+      });
+      const local = pair ? stats.get(pair.localCandidateId) : null;
+      const remote = pair ? stats.get(pair.remoteCandidateId) : null;
+      const types = [local?.candidateType, remote?.candidateType].filter(
+        Boolean,
+      );
+      peer.view.route = types.includes('relay')
+        ? 'TURN relay'
+        : types.length
+          ? `Direct · ${types.join(' / ')}`
+          : 'Connected';
+      this.changed();
+    } catch {
+      peer.view.route = 'Connected';
+    }
   }
 
   private async negotiate(peerId: string, peer: Peer) {
@@ -437,6 +556,7 @@ export class TinyCalls {
       const peer = this.peers.get(data.peerId);
       if (peer) {
         this.peers.delete(data.peerId);
+        if (peer.recoveryTimer) clearTimeout(peer.recoveryTimer);
         peer.channel.close();
         peer.pc.close();
         this.changed();

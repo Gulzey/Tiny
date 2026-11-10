@@ -79,12 +79,14 @@ export function createTinyServer({
   host = '127.0.0.1',
   port = 8787,
   localAuth = true,
+  registrationEnabled = true,
   allowedOrigins = DEFAULT_ORIGINS,
-  iceServers = [],
+  rtcConfig = () => ({ iceServers: [], expiresAt: null }),
+  trustProxy = false,
   staticDir = resolve('dist'),
 } = {}) {
-  if (!Array.isArray(iceServers) || iceServers.some((s) => !s || !s.urls))
-    throw new Error('iceServers must be an array of RTCIceServer objects.');
+  if (typeof rtcConfig !== 'function')
+    throw new Error('rtcConfig must issue ICE configuration per user.');
   const origins = new Set(allowedOrigins);
   const db = openDatabase(dbPath);
   const sockets = new Map(); // peerId -> authenticated connection
@@ -92,6 +94,14 @@ export function createTinyServer({
   const rates = new Map();
   let closing = false;
   const permittedOrigin = (origin) => !origin || origins.has(origin);
+  const clientIp = (req) => {
+    const remote = req.socket.remoteAddress || 'unknown';
+    const loopback = ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(remote);
+    if (!trustProxy || !loopback) return remote;
+    const forwarded = req.headers['x-forwarded-for'];
+    const first = Array.isArray(forwarded) ? forwarded[0] : forwarded;
+    return first?.split(',')[0]?.trim().slice(0, 64) || remote;
+  };
   function throttle(key, max, windowMs) {
     const now = Date.now();
     const rate = rates.get(key);
@@ -222,6 +232,11 @@ export function createTinyServer({
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Cross-Origin-Resource-Policy', 'same-site');
+    res.setHeader(
+      'Permissions-Policy',
+      'camera=(), microphone=(self), display-capture=(self)',
+    );
     const json = (status, value) => {
       res.writeHead(status, {
         'Content-Type': 'application/json; charset=utf-8',
@@ -253,16 +268,20 @@ export function createTinyServer({
       }
       const url = new URL(req.url, 'http://tiny.local');
       const path = url.pathname;
+      if (path === '/api/health' && req.method === 'GET') {
+        db.prepare('SELECT 1').get();
+        return json(200, { ok: true });
+      }
       if (path === '/api/config' && req.method === 'GET')
         return json(200, {
           localAuth,
-          iceServers,
+          registrationEnabled,
           maxCallParticipants: MAX_CALL,
         });
       if (path === '/api/auth/local' && req.method === 'POST') {
         if (!localAuth)
-          fail(403, 'Local test sign-in is disabled on this server.');
-        throttle(`auth:${req.socket.remoteAddress}`, 30, 60_000);
+          fail(403, 'Password sign-in is disabled on this server.');
+        throttle(`auth-ip:${clientIp(req)}`, 20, 60_000);
         const body = await readJson(req);
         const handle =
           typeof body.handle === 'string'
@@ -284,11 +303,12 @@ export function createTinyServer({
           .get(handle);
         let user;
         if (body.create === true) {
-          if (existing)
-            fail(
-              409,
-              'That handle is already taken. Sign in or choose another handle.',
-            );
+          if (!registrationEnabled)
+            fail(403, 'New account registration is temporarily closed.');
+          throttle(`register-ip:${clientIp(req)}`, 15, 15 * 60_000);
+          if (body.password.length < 12)
+            fail(400, 'New passwords must contain at least 12 characters.');
+          if (existing) fail(409, 'That account could not be created.');
           const name = cleanText(
             body.displayName || handle,
             48,
@@ -298,10 +318,11 @@ export function createTinyServer({
             user = await createAccount(db, handle, body.password, name);
           } catch (error) {
             if (/UNIQUE/.test(error.message))
-              fail(409, 'That handle is already taken.');
+              fail(409, 'That account could not be created.');
             throw error;
           }
         } else {
+          throttle(`login:${clientIp(req)}:${handle}`, 10, 15 * 60_000);
           if (!(await verifyPassword(existing, body.password)))
             fail(401, 'Handle or password is incorrect.');
           user = publicUser(existing);
@@ -314,6 +335,8 @@ export function createTinyServer({
         if (!user) fail(401, 'Your session has ended. Sign in again.');
         throttle(`http:${user.id}`, 240, 60_000);
         if (path === '/api/me' && req.method === 'GET') return json(200, user);
+        if (path === '/api/rtc/config' && req.method === 'GET')
+          return json(200, rtcConfig(user.id));
         if (path === '/api/logout' && req.method === 'POST') {
           db.prepare('DELETE FROM sessions WHERE token_hash=?').run(
             digest(token),
@@ -363,9 +386,36 @@ export function createTinyServer({
             )
             .all(user.id)
             .map((row) => conversation(row.id));
-          return json(200, { user, friends, conversations });
+          const incoming = db
+            .prepare(
+              `SELECT r.created_at, u.* FROM friend_requests r
+               JOIN users u ON u.id=r.requester_id
+               WHERE r.recipient_id=? ORDER BY r.created_at DESC`,
+            )
+            .all(user.id)
+            .map((row) => ({
+              user: publicUser(row),
+              createdAt: row.created_at,
+            }));
+          const outgoing = db
+            .prepare(
+              `SELECT r.created_at, u.* FROM friend_requests r
+               JOIN users u ON u.id=r.recipient_id
+               WHERE r.requester_id=? ORDER BY r.created_at DESC`,
+            )
+            .all(user.id)
+            .map((row) => ({
+              user: publicUser(row),
+              createdAt: row.created_at,
+            }));
+          return json(200, {
+            user,
+            friends,
+            friendRequests: { incoming, outgoing },
+            conversations,
+          });
         }
-        if (path === '/api/friends' && req.method === 'POST') {
+        if (path === '/api/friend-requests' && req.method === 'POST') {
           const body = await readJson(req);
           const friend = db
             .prepare('SELECT * FROM users WHERE handle=?')
@@ -374,26 +424,85 @@ export function createTinyServer({
                 ? body.handle.trim().toLowerCase()
                 : '',
             );
-          if (!friend)
-            fail(
-              404,
-              'No local account has that handle. Create it in another Tiny window first.',
-            );
+          if (!friend) fail(404, 'No Tiny account uses that handle.');
           if (friend.id === user.id)
             fail(400, 'Choose a friend other than yourself.');
-          transaction(db, () => {
-            db.prepare('INSERT OR IGNORE INTO friends VALUES (?,?)').run(
-              user.id,
-              friend.id,
+          if (
+            db
+              .prepare('SELECT 1 FROM friends WHERE user_id=? AND friend_id=?')
+              .get(user.id, friend.id)
+          )
+            fail(409, 'You are already friends.');
+          if (
+            db
+              .prepare(
+                'SELECT 1 FROM friend_requests WHERE requester_id=? AND recipient_id=?',
+              )
+              .get(user.id, friend.id)
+          )
+            fail(409, 'That friend request is already pending.');
+          if (
+            db
+              .prepare(
+                'SELECT 1 FROM friend_requests WHERE requester_id=? AND recipient_id=?',
+              )
+              .get(friend.id, user.id)
+          )
+            fail(
+              409,
+              'This person already sent you a request. Accept it instead.',
             );
-            db.prepare('INSERT OR IGNORE INTO friends VALUES (?,?)').run(
-              friend.id,
-              user.id,
-            );
-          });
+          db.prepare('INSERT INTO friend_requests VALUES (?,?,?)').run(
+            user.id,
+            friend.id,
+            new Date().toISOString(),
+          );
           broadcastUsers([user.id, friend.id], { type: 'state' });
-          broadcastPresence();
           return json(200, publicUser(friend));
+        }
+        const friendRequestRoute = /^\/api\/friend-requests\/([^/]+)$/.exec(
+          path,
+        );
+        if (friendRequestRoute && req.method === 'PATCH') {
+          const otherId = friendRequestRoute[1];
+          const body = await readJson(req);
+          if (!['accept', 'decline', 'cancel'].includes(body.action))
+            fail(400, 'Choose accept, decline, or cancel.');
+          if (body.action === 'cancel') {
+            const result = db
+              .prepare(
+                'DELETE FROM friend_requests WHERE requester_id=? AND recipient_id=?',
+              )
+              .run(user.id, otherId);
+            if (!result.changes)
+              fail(404, 'That outgoing request is no longer pending.');
+          } else {
+            const pending = db
+              .prepare(
+                'SELECT 1 FROM friend_requests WHERE requester_id=? AND recipient_id=?',
+              )
+              .get(otherId, user.id);
+            if (!pending)
+              fail(404, 'That incoming request is no longer pending.');
+            transaction(db, () => {
+              if (body.action === 'accept') {
+                db.prepare('INSERT OR IGNORE INTO friends VALUES (?,?)').run(
+                  user.id,
+                  otherId,
+                );
+                db.prepare('INSERT OR IGNORE INTO friends VALUES (?,?)').run(
+                  otherId,
+                  user.id,
+                );
+              }
+              db.prepare(
+                'DELETE FROM friend_requests WHERE requester_id=? AND recipient_id=?',
+              ).run(otherId, user.id);
+            });
+          }
+          broadcastUsers([user.id, otherId], { type: 'state' });
+          if (body.action === 'accept') broadcastPresence();
+          return json(200, { ok: true });
         }
         if (path === '/api/conversations' && req.method === 'POST') {
           const body = await readJson(req);
@@ -603,7 +712,7 @@ export function createTinyServer({
         if (!event || typeof event !== 'object')
           fail(400, 'Invalid socket event.');
         if (!connection) {
-          throttle(`ws-auth:${req.socket.remoteAddress}`, 100, 60_000);
+          throttle(`ws-auth:${clientIp(req)}`, 100, 60_000);
           if (event.type !== 'auth') fail(401, 'Sign in first.');
           const userId = sessionUserId(db, event.token);
           if (!userId) {

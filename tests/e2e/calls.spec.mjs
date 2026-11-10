@@ -51,10 +51,18 @@ test('three real WebRTC peers exchange audio, share a screen, stop, and release 
   for (let i = 1; i < 3; i++) {
     expect(
       (
-        await request.post(`${server}/api/friends`, {
+        await request.post(`${server}/api/friend-requests`, {
           headers: auth(0),
           data: { handle: accounts[i].user.handle },
         })
+      ).ok(),
+    ).toBeTruthy();
+    expect(
+      (
+        await request.patch(
+          `${server}/api/friend-requests/${accounts[0].user.id}`,
+          { headers: auth(i), data: { action: 'accept' } },
+        )
       ).ok(),
     ).toBeTruthy();
   }

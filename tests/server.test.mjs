@@ -4,10 +4,20 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WebSocket } from 'ws';
+import { DatabaseSync } from 'node:sqlite';
+import { scrypt as scryptCallback } from 'node:crypto';
+import { promisify } from 'node:util';
 import { createTinyServer, validateAvatar } from '../server/app.mjs';
-import { seedDatabase, digest } from '../server/database.mjs';
+import {
+  seedDatabase,
+  digest,
+  openDatabase,
+  verifyPassword,
+  createAccount,
+} from '../server/database.mjs';
 
 const password = 'test-password-123';
+const scrypt = promisify(scryptCallback);
 async function setup(t, options = {}) {
   const app = createTinyServer({ port: 0, ...options });
   await app.listen();
@@ -84,6 +94,21 @@ async function connect(base, token) {
   };
 }
 
+async function makeFriends(request, sender, recipient) {
+  const sent = await request('/api/friend-requests', {
+    token: sender.token,
+    method: 'POST',
+    body: { handle: recipient.user.handle },
+  });
+  assert.equal(sent.status, 200);
+  const accepted = await request(`/api/friend-requests/${sender.user.id}`, {
+    token: recipient.token,
+    method: 'PATCH',
+    body: { action: 'accept' },
+  });
+  assert.equal(accepted.status, 200);
+}
+
 test('local accounts use passwords; sessions, origins, and disabled auth are enforced', async (t) => {
   const { request, account } = await setup(t);
   const alice = await account('alice');
@@ -150,6 +175,146 @@ test('local accounts use passwords; sessions, origins, and disabled auth are enf
   );
 });
 
+test('database migration preserves legacy password hashes and adds friend requests', async (t) => {
+  const folder = await mkdtemp(join(tmpdir(), 'tiny-legacy-'));
+  const path = join(folder, 'tiny.sqlite');
+  t.after(() => rm(folder, { recursive: true, force: true }));
+  const legacy = new DatabaseSync(path);
+  legacy.exec(`CREATE TABLE users (
+    id TEXT PRIMARY KEY, handle TEXT NOT NULL UNIQUE, display_name TEXT NOT NULL,
+    avatar TEXT, password_hash TEXT NOT NULL, salt TEXT NOT NULL
+  )`);
+  const salt = 'legacy-test-salt';
+  const hash = await scrypt('legacy-password', salt, 64, {
+    N: 1 << 14,
+    r: 8,
+    p: 1,
+    maxmem: 32 * 1024 * 1024,
+  });
+  legacy
+    .prepare('INSERT INTO users VALUES (?,?,?,?,?,?)')
+    .run('legacy-id', 'legacy', 'Legacy', null, hash.toString('hex'), salt);
+  legacy.close();
+  const migrated = openDatabase(path);
+  try {
+    const row = migrated
+      .prepare('SELECT * FROM users WHERE id=?')
+      .get('legacy-id');
+    assert.equal(row.password_version, 1);
+    assert.equal(await verifyPassword(row, 'legacy-password'), true);
+    assert.equal(await verifyPassword(row, 'wrong-password'), false);
+    const created = await createAccount(
+      migrated,
+      'modern',
+      'modern-password-123',
+      'Modern',
+    );
+    const modern = migrated
+      .prepare('SELECT * FROM users WHERE id=?')
+      .get(created.id);
+    assert.equal(modern.password_version, 2);
+    assert.equal(await verifyPassword(modern, 'modern-password-123'), true);
+    assert.equal(await verifyPassword(modern, 'wrong-password'), false);
+    assert.equal(
+      migrated.prepare('SELECT count(*) AS count FROM users').get().count,
+      2,
+    );
+    assert.equal(
+      migrated
+        .prepare(
+          "SELECT 1 FROM sqlite_master WHERE type='table' AND name='friend_requests'",
+        )
+        .get()['1'],
+      1,
+    );
+  } finally {
+    migrated.close();
+  }
+});
+
+test('friend requests require acceptance and support decline, cancel, duplicates, and live updates', async (t) => {
+  const { request, account, base } = await setup(t);
+  const alice = await account('request_alice');
+  const bob = await account('request_bob');
+  const a = await connect(base, alice.token);
+  const b = await connect(base, bob.token);
+  t.after(() => {
+    a.ws.terminate();
+    b.ws.terminate();
+  });
+  assert.equal(
+    (
+      await request('/api/friend-requests', {
+        method: 'POST',
+        body: { handle: bob.user.handle },
+      })
+    ).status,
+    401,
+  );
+  assert.equal(
+    (
+      await request('/api/friend-requests', {
+        token: alice.token,
+        method: 'POST',
+        body: { handle: alice.user.handle },
+      })
+    ).status,
+    400,
+  );
+  await request('/api/friend-requests', {
+    token: alice.token,
+    method: 'POST',
+    body: { handle: bob.user.handle },
+  });
+  await Promise.all([a.next('state'), b.next('state')]);
+  assert.equal(
+    (
+      await request('/api/friend-requests', {
+        token: alice.token,
+        method: 'POST',
+        body: { handle: bob.user.handle },
+      })
+    ).status,
+    409,
+  );
+  let state = (await request('/api/state', { token: bob.token })).body;
+  assert.equal(state.friends.length, 0);
+  assert.equal(state.friendRequests.incoming[0].user.id, alice.user.id);
+  await request(`/api/friend-requests/${alice.user.id}`, {
+    token: bob.token,
+    method: 'PATCH',
+    body: { action: 'decline' },
+  });
+  await request('/api/friend-requests', {
+    token: alice.token,
+    method: 'POST',
+    body: { handle: bob.user.handle },
+  });
+  await request(`/api/friend-requests/${bob.user.id}`, {
+    token: alice.token,
+    method: 'PATCH',
+    body: { action: 'cancel' },
+  });
+  assert.equal(
+    (await request('/api/state', { token: alice.token })).body.friendRequests
+      .outgoing.length,
+    0,
+  );
+  await makeFriends(request, alice, bob);
+  state = (await request('/api/state', { token: bob.token })).body;
+  assert.equal(state.friends[0].id, alice.user.id);
+  assert.equal(
+    (
+      await request('/api/friend-requests', {
+        token: alice.token,
+        method: 'POST',
+        body: { handle: bob.user.handle },
+      })
+    ).status,
+    409,
+  );
+});
+
 test('friendship, private/group membership, durable messages and idempotent retries', async (t) => {
   const folder = await mkdtemp(join(tmpdir(), 'tiny-test-'));
   let app = createTinyServer({ dbPath: join(folder, 'tiny.sqlite'), port: 0 });
@@ -161,7 +326,7 @@ test('friendship, private/group membership, durable messages and idempotent retr
   let base = `http://127.0.0.1:${app.server.address().port}`;
   const request = async (path, token, body) => {
     const response = await fetch(base + path, {
-      method: body ? 'POST' : 'GET',
+      method: body?.action ? 'PATCH' : body ? 'POST' : 'GET',
       headers: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
@@ -185,11 +350,27 @@ test('friendship, private/group membership, durable messages and idempotent retr
     403,
   );
   assert.equal(
-    (await request('/api/friends', alice.token, { handle: 'alice' })).status,
+    (await request('/api/friend-requests', alice.token, { handle: 'alice' }))
+      .status,
     400,
   );
   assert.equal(
-    (await request('/api/friends', alice.token, { handle: 'bob' })).status,
+    (await request('/api/friend-requests', alice.token, { handle: 'bob' }))
+      .status,
+    200,
+  );
+  assert.equal((await request('/api/state', bob.token)).body.friends.length, 0);
+  assert.equal(
+    (await request('/api/state', bob.token)).body.friendRequests.incoming[0]
+      .user.id,
+    alice.user.id,
+  );
+  assert.equal(
+    (
+      await request(`/api/friend-requests/${alice.user.id}`, bob.token, {
+        action: 'accept',
+      })
+    ).status,
     200,
   );
   assert.equal(
@@ -248,7 +429,10 @@ test('friendship, private/group membership, durable messages and idempotent retr
     400,
   );
   assert.equal((await request(path, bob.token)).body.messages.length, 1);
-  await request('/api/friends', alice.token, { handle: 'charlie' });
+  await request('/api/friend-requests', alice.token, { handle: 'charlie' });
+  await request(`/api/friend-requests/${alice.user.id}`, charlie.token, {
+    action: 'accept',
+  });
   const group = await request('/api/conversations', alice.token, {
     memberIds: [bob.user.id, charlie.user.id],
     title: 'Our group',
@@ -362,11 +546,7 @@ test('WebSockets deliver messages, isolate call signaling, and remove disconnect
   const alice = await account('alice');
   const bob = await account('bob');
   const charlie = await account('charlie');
-  await request('/api/friends', {
-    token: alice.token,
-    method: 'POST',
-    body: { handle: 'bob' },
-  });
+  await makeFriends(request, alice, bob);
   const chat = (
     await request('/api/conversations', {
       token: alice.token,
@@ -460,11 +640,7 @@ test('call capacity is four and failed joins preserve the caller’s current roo
     app.db
       .prepare('INSERT INTO members VALUES (?,?)')
       .run('larger-chat', user.user.id);
-  await request('/api/friends', {
-    token: accounts[4].token,
-    method: 'POST',
-    body: { handle: 'foxtrot' },
-  });
+  await makeFriends(request, accounts[4], accounts[5]);
   const oldChat = (
     await request('/api/conversations', {
       token: accounts[4].token,
@@ -530,11 +706,7 @@ test('malformed signals are rejected and expired or logged-out socket sessions c
   const { app, request, account, base } = await setup(t);
   const alice = await account('alice');
   const bob = await account('bob');
-  await request('/api/friends', {
-    token: alice.token,
-    method: 'POST',
-    body: { handle: 'bob' },
-  });
+  await makeFriends(request, alice, bob);
   const chat = (
     await request('/api/conversations', {
       token: alice.token,

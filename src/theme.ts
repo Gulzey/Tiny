@@ -1,18 +1,31 @@
 type Theme = 'light' | 'dark';
 
 const storageKey = 'tiny.theme';
+const versionKey = 'tiny.theme.version';
+const themeVersion = '2';
 let initialized = false;
 
 function savedTheme(): Theme {
   try {
-    return localStorage.getItem(storageKey) === 'dark' ? 'dark' : 'light';
+    // The new black design replaces the old default once. Future choices persist.
+    if (localStorage.getItem(versionKey) !== themeVersion) return 'dark';
+    return localStorage.getItem(storageKey) === 'light' ? 'light' : 'dark';
   } catch {
-    return 'light';
+    return 'dark';
+  }
+}
+
+function saveTheme(theme: Theme): void {
+  try {
+    localStorage.setItem(storageKey, theme);
+    localStorage.setItem(versionKey, themeVersion);
+  } catch {
+    // Theme selection still works when persistent storage is unavailable.
   }
 }
 
 function currentTheme(): Theme {
-  return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+  return document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
 }
 
 function updateButton(button: HTMLButtonElement, theme: Theme): void {
@@ -22,7 +35,7 @@ function updateButton(button: HTMLButtonElement, theme: Theme): void {
   button.setAttribute('aria-pressed', String(dark));
   button.title = dark
     ? 'Switch to the light theme'
-    : 'Switch to the grey-blue dark theme';
+    : 'Switch to the black theme';
 }
 
 function applyTheme(theme: Theme): void {
@@ -30,7 +43,7 @@ function applyTheme(theme: Theme): void {
   document.documentElement.style.colorScheme = theme;
   document
     .querySelector<HTMLMetaElement>('meta[name="theme-color"]')
-    ?.setAttribute('content', theme === 'dark' ? '#18212c' : '#f5f3ec');
+    ?.setAttribute('content', theme === 'dark' ? '#08090b' : '#f3f4f6');
   for (const button of document.querySelectorAll<HTMLButtonElement>(
     'button[data-theme-toggle]',
   )) {
@@ -41,7 +54,9 @@ function applyTheme(theme: Theme): void {
 export function initTheme(): void {
   if (initialized) return;
   initialized = true;
-  applyTheme(savedTheme());
+  const theme = savedTheme();
+  saveTheme(theme);
+  applyTheme(theme);
 
   // One delegated handler survives view changes without retaining removed buttons.
   document.addEventListener('click', (event) => {
@@ -53,16 +68,16 @@ export function initTheme(): void {
       return;
     const theme: Theme = currentTheme() === 'dark' ? 'light' : 'dark';
     applyTheme(theme);
-    try {
-      localStorage.setItem(storageKey, theme);
-    } catch {
-      // The theme still works when storage is unavailable.
-    }
+    saveTheme(theme);
   });
 
   // Keep separate Tiny tabs consistent; no timers or background polling.
   window.addEventListener('storage', (event) => {
-    if (event.key === storageKey || event.key === null)
+    if (
+      event.key === storageKey ||
+      event.key === versionKey ||
+      event.key === null
+    )
       applyTheme(savedTheme());
   });
 }

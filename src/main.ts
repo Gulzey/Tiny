@@ -2,6 +2,8 @@ import './style.css';
 import { TinyCalls } from './calls';
 import { initTheme, createThemeToggle } from './theme';
 import { createActivityPolicy } from './activity';
+import tinyLogo from './assets/tiny-logo.svg';
+import { checkForUpdates, startUpdater } from './updater';
 
 initTheme();
 
@@ -26,13 +28,28 @@ type Conversation = {
   lastMessage?: Message;
   callParticipants?: { userId: string; peerId: string }[];
 };
-type State = { user: User; friends: User[]; conversations: Conversation[] };
+type FriendRequest = { user: User; createdAt: string };
+type State = {
+  user: User;
+  friends: User[];
+  friendRequests: {
+    incoming: FriendRequest[];
+    outgoing: FriendRequest[];
+  };
+  conversations: Conversation[];
+};
 
 const root = document.querySelector<HTMLDivElement>('#app')!;
-const initialServer =
-  location.port === '8787' ? location.origin : 'http://127.0.0.1:8787';
-let serverUrl = localStorage.getItem('tiny.server') || initialServer;
-let token = localStorage.getItem(`tiny.token:${serverUrl}`) || '';
+const productionServer = 'https://tinybros.duckdns.org';
+const tauriClient = location.hostname === 'tauri.localhost';
+const forceRelayTest =
+  new URLSearchParams(location.search).get('tiny-force-relay') === '1';
+const serverUrl =
+  import.meta.env.DEV && import.meta.env.VITE_TINY_SERVER_URL
+    ? new URL(import.meta.env.VITE_TINY_SERVER_URL).origin
+    : productionServer;
+const tokenStorage = tauriClient ? localStorage : sessionStorage;
+let token = tokenStorage.getItem(`tiny.token:${serverUrl}`) || '';
 let data: State | null = null;
 let selected = '';
 let messages: Message[] = [];
@@ -152,7 +169,10 @@ function avatar(user: User, size = ''): HTMLElement {
 }
 function brand(): HTMLElement {
   const box = el('div', 'brand');
-  box.append(el('span', 'brand-mark'), el('span', '', 'tiny'));
+  const logo = el('img');
+  logo.src = tinyLogo;
+  logo.alt = '';
+  box.append(logo, el('span', '', 'tiny'));
   return box;
 }
 function showError(error: unknown): void {
@@ -186,7 +206,7 @@ async function api<T>(
     });
   } catch {
     throw new Error(
-      'Cannot reach the Tiny server. Start the server and check its address.',
+      'Tiny is temporarily offline. Check your internet connection and try again.',
     );
   }
   const result = await response.json().catch(() => ({}));
@@ -205,8 +225,17 @@ function send(event: unknown): void {
     );
   socket.send(JSON.stringify(event));
 }
+async function refreshIce(): Promise<RTCIceServer[]> {
+  const rtc = await api<{ iceServers: RTCIceServer[] }>('/api/rtc/config');
+  return rtc.iceServers || [];
+}
 function newCallEngine(): void {
-  calls = new TinyCalls({ send, onChange: renderCall, onError: showError });
+  calls = new TinyCalls({
+    send,
+    onChange: renderCall,
+    onError: showError,
+    refreshIce,
+  });
   calls.setBackgrounded(!activity.active);
 }
 newCallEngine();
@@ -217,8 +246,8 @@ function renderLogin(): void {
   const aside = el('section', 'welcome');
   aside.append(
     brand(),
-    el('span', 'eyebrow', 'A LITTLE CLOSER'),
-    el('h1', '', 'Good company.\nLess noise.'),
+    el('span', 'eyebrow', 'VOICE · CHAT · PLAY'),
+    el('h1', '', 'Your friends.\nOne click away.'),
     el(
       'p',
       'welcome-copy',
@@ -236,10 +265,9 @@ function renderLogin(): void {
   );
   aside.append(illustration, el('p', 'quiet', 'Made for a few good friends.'));
   const panel = el('section', 'login-panel');
-  panel.append(createThemeToggle());
   panel.append(
-    el('span', 'pill', 'LOCAL DEVELOPMENT'),
-    el('h2', '', authCreate ? 'Make yourself at home.' : 'Welcome back.'),
+    el('span', 'pill', 'TINY NETWORK'),
+    el('h2', '', authCreate ? 'Create your account.' : 'Jump back in.'),
     el(
       'p',
       'muted',
@@ -259,29 +287,16 @@ function renderLogin(): void {
   password.field.autocomplete = authCreate
     ? 'new-password'
     : 'current-password';
-  password.field.minLength = 8;
+  password.field.minLength = authCreate ? 12 : 8;
   const display = input('Display name', 'displayName');
   display.field.maxLength = 48;
   if (authCreate) display.field.required = true;
   form.append(handle.wrapper, password.wrapper);
   if (authCreate) form.append(display.wrapper);
-  const details = el('details', 'server-details');
-  details.append(el('summary', '', 'Server connection'));
-  const address = input('Server URL', 'serverUrl', 'url', serverUrl);
-  address.field.required = true;
-  details.append(
-    address.wrapper,
-    el(
-      'p',
-      'quiet',
-      'Your friends must use the same reachable server. This PC is not automatically available over the internet.',
-    ),
-  );
-  form.append(details);
   const submit = el(
     'button',
     'button primary wide',
-    authCreate ? 'Create local account' : 'Sign in locally',
+    authCreate ? 'Create account' : 'Sign in',
   );
   submit.type = 'submit';
   form.append(submit);
@@ -289,20 +304,15 @@ function renderLogin(): void {
     event.preventDefault();
     submit.disabled = true;
     try {
-      const url = new URL(address.field.value.trim());
-      if (!['http:', 'https:'].includes(url.protocol))
-        throw new Error('Use an http:// or https:// server address.');
-      serverUrl = url.origin;
       token = '';
-      localStorage.setItem('tiny.server', serverUrl);
       const config = await api<{
         localAuth: boolean;
-        iceServers: RTCIceServer[];
+        registrationEnabled: boolean;
       }>('/api/config');
       if (!config.localAuth)
-        throw new Error(
-          'Local test sign-in is disabled on this server. Configure a production authentication provider before using it.',
-        );
+        throw new Error('Password sign-in is disabled on this server.');
+      if (authCreate && !config.registrationEnabled)
+        throw new Error('New account registration is temporarily closed.');
       const result = await api<{ token: string; user: User }>(
         '/api/auth/local',
         'POST',
@@ -314,8 +324,8 @@ function renderLogin(): void {
         },
       );
       token = result.token;
-      localStorage.setItem(`tiny.token:${serverUrl}`, token);
-      calls.configure(config.iceServers || []);
+      tokenStorage.setItem(`tiny.token:${serverUrl}`, token);
+      calls.configure(await refreshIce(), forceRelayTest);
       await enterApp();
     } catch (error) {
       showError(error);
@@ -328,7 +338,7 @@ function renderLogin(): void {
     button(
       authCreate
         ? 'Already have an account? Sign in'
-        : 'New here? Create a local account',
+        : 'New to Tiny? Create an account',
       () => {
         authCreate = !authCreate;
         renderLogin();
@@ -504,6 +514,18 @@ function renderSidebar(): void {
     button('Add friend', openAddFriend, 'text-button'),
   );
   sidebar.append(friendHeading);
+  const pendingCount = data.friendRequests?.incoming.length || 0;
+  const sentCount = data.friendRequests?.outgoing.length || 0;
+  if (pendingCount || sentCount)
+    sidebar.append(
+      button(
+        pendingCount
+          ? `Requests · ${pendingCount} new`
+          : `Requests · ${sentCount} sent`,
+        openFriendRequests,
+        `request-summary ${pendingCount ? 'has-incoming' : ''}`,
+      ),
+    );
   const friends = el('div', 'friend-list');
   for (const friend of data.friends) {
     const row = button('', () => createChat([friend.id]), 'friend-row');
@@ -526,6 +548,7 @@ function renderSidebar(): void {
   const bottom = el('div', 'sidebar-bottom');
   bottom.append(
     createThemeToggle(),
+    button('Check updates', () => checkForUpdates(), 'text-button'),
     button('Sign out', () => signOut(), 'text-button'),
   );
   sidebar.append(bottom);
@@ -555,7 +578,7 @@ function renderHeader(): void {
   const active = conversation.callParticipants?.length || 0;
   const start = button(
     active ? `Join call · ${active}` : 'Start call',
-    () => calls.join(conversation.id),
+    () => joinCall(conversation.id),
     'button call-button',
   );
   start.disabled =
@@ -563,6 +586,10 @@ function renderHeader(): void {
     calls.state.joining ||
     connection !== 'Connected';
   header.append(start);
+}
+async function joinCall(conversationId: string): Promise<void> {
+  calls.configure(await refreshIce(), forceRelayTest);
+  await calls.join(conversationId);
 }
 async function selectConversation(id: string): Promise<void> {
   if (selected) drafts.set(selected, currentDraft);
@@ -850,7 +877,7 @@ async function signOut(revoke = true): Promise<void> {
   calls.destroy();
   socket?.close();
   socket = null;
-  localStorage.removeItem(`tiny.token:${serverUrl}`);
+  tokenStorage.removeItem(`tiny.token:${serverUrl}`);
   authCreate = false;
   messageGeneration++;
   token = '';
@@ -899,7 +926,7 @@ function modal(title: string): {
   return { dialog, body, close };
 }
 function openAddFriend(): void {
-  const { body, close } = modal('Add a friend');
+  const { body, close } = modal('Send a friend request');
   body.append(
     el(
       'p',
@@ -911,14 +938,16 @@ function openAddFriend(): void {
   const handle = input('Friend handle', 'friendHandle');
   handle.field.required = true;
   handle.field.placeholder = 'e.g. bob';
-  const submit = el('button', 'button primary', 'Add friend');
+  const submit = el('button', 'button primary', 'Send request');
   submit.type = 'submit';
   form.append(handle.wrapper, submit);
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     submit.disabled = true;
     try {
-      await api('/api/friends', 'POST', { handle: handle.field.value.trim() });
+      await api('/api/friend-requests', 'POST', {
+        handle: handle.field.value.trim(),
+      });
       await refreshState();
       close();
     } catch (error) {
@@ -929,6 +958,50 @@ function openAddFriend(): void {
   });
   body.append(form);
   handle.field.focus();
+}
+function openFriendRequests(): void {
+  if (!data) return;
+  const { body, close } = modal('Friend requests');
+  const section = (
+    title: string,
+    items: FriendRequest[],
+    incoming: boolean,
+  ) => {
+    body.append(el('h3', 'request-heading', title));
+    const list = el('div', 'request-list');
+    if (!items.length) list.append(el('p', 'muted', 'Nothing here right now.'));
+    for (const request of items) {
+      const row = el('div', 'request-row');
+      const identity = el('div', 'request-person');
+      identity.append(
+        avatar(request.user, 'small'),
+        el('strong', '', request.user.displayName),
+        el('span', 'quiet', `@${request.user.handle}`),
+      );
+      const actions = el('div', 'request-actions');
+      const act = async (action: 'accept' | 'decline' | 'cancel') => {
+        await api(`/api/friend-requests/${request.user.id}`, 'PATCH', {
+          action,
+        });
+        close();
+        await refreshState();
+      };
+      if (incoming)
+        actions.append(
+          button('Accept', () => act('accept'), 'button primary small-button'),
+          button('Decline', () => act('decline'), 'button small-button'),
+        );
+      else
+        actions.append(
+          button('Cancel', () => act('cancel'), 'button small-button'),
+        );
+      row.append(identity, actions);
+      list.append(row);
+    }
+    body.append(list);
+  };
+  section('Incoming', data.friendRequests?.incoming || [], true);
+  section('Sent', data.friendRequests?.outgoing || [], false);
 }
 function openNewChat(): void {
   if (!data) return;
@@ -1150,6 +1223,13 @@ function renderCall(): void {
     ),
   );
   controls.append(
+    button(
+      state.deafened ? 'Undeafen' : 'Deafen',
+      () => calls.toggleDeafen(),
+      'button small-button',
+    ),
+  );
+  controls.append(
     state.sharing
       ? button('Stop sharing', () => calls.stopSharing(), 'button stop-share')
       : button(
@@ -1165,14 +1245,24 @@ function renderCall(): void {
   participants.append(el('span', '', 'You'));
   for (const peer of state.peers)
     participants.append(
-      el(
-        'span',
-        '',
-        `${userById(peer.userId)?.displayName || 'Friend'} · ${peer.state}`,
-      ),
+      el('span', '', userById(peer.userId)?.displayName || 'Friend'),
     );
   panel.querySelector('.call-participants')?.remove();
   panel.append(participants);
+  panel.querySelector('.call-diagnostics')?.remove();
+  if (state.peers.length) {
+    const diagnostics = el('details', 'call-diagnostics');
+    diagnostics.append(el('summary', '', 'Connection details'));
+    for (const peer of state.peers)
+      diagnostics.append(
+        el(
+          'p',
+          'quiet',
+          `${userById(peer.userId)?.displayName || 'Friend'}: ${peer.route} · ICE ${peer.iceState}`,
+        ),
+      );
+    panel.append(diagnostics);
+  }
   let media = panel.querySelector<HTMLElement>('.call-media');
   if (!media) {
     media = el('div', 'call-media');
@@ -1216,6 +1306,7 @@ function renderCall(): void {
           );
       });
     }
+    if (!video && !local) node.muted = state.deafened;
   }
   if (state.localScreen) attach('local-screen', state.localScreen, true, true);
   for (const peer of state.peers) {
@@ -1238,11 +1329,19 @@ async function bootstrap(): Promise<void> {
   renderLogin();
   if (!token) return;
   try {
-    const config = await api<{ iceServers: RTCIceServer[] }>('/api/config');
-    calls.configure(config.iceServers || []);
+    await api('/api/config');
+    calls.configure(await refreshIce(), forceRelayTest);
     await enterApp();
   } catch (error) {
     showError(error);
   }
 }
 void bootstrap();
+startUpdater({
+  busy: () =>
+    calls.state.joining ||
+    Boolean(calls.state.conversationId) ||
+    sending ||
+    Boolean(currentDraft.trim()) ||
+    [...drafts.values()].some((draft) => Boolean(draft.trim())),
+});

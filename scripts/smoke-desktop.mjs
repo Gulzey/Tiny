@@ -103,6 +103,8 @@ try {
   await expect(page).toHaveURL(/^http:\/\/tauri\.localhost/);
   await expect(page.locator('body')).toContainText('Tiny');
   await expect(page.locator('input[type="password"]')).toBeVisible();
+  await expect(page.getByLabel('Server URL', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('TINY NETWORK', { exact: true })).toBeVisible();
   const capabilities = await page.evaluate(() => ({
     secure: window.isSecureContext,
     microphone: typeof navigator.mediaDevices?.getUserMedia === 'function',
@@ -131,16 +133,6 @@ try {
   if (process.argv.includes('--measure-idle')) {
     // Measure the installed release app and all of its WebView2 children,
     // never the developer server, test browser, or unrelated Edge windows.
-    await page.getByText('Server connection', { exact: true }).click();
-    await page.getByLabel('Server URL', { exact: true }).fill(api);
-    await page.getByLabel('Handle', { exact: true }).fill('alice');
-    await page.getByLabel('Password', { exact: true }).fill('tiny-local-demo');
-    await page
-      .getByRole('button', { name: 'Sign in locally', exact: true })
-      .click();
-    await expect(
-      page.getByRole('button', { name: 'Edit profile' }),
-    ).toBeVisible();
     await delay(2000);
     const execute = promisify(execFile);
     const snapshot = async (minimize) => {
@@ -186,7 +178,7 @@ try {
     const report = {
       measuredAt: new Date().toISOString(),
       conditions:
-        'Signed in, minimized, connected to local server; no call or screen sharing. Release executable plus all its WebView2 children. CDP attached for this test only.',
+        'Login screen, minimized; no call or screen sharing. Release executable plus all its WebView2 children. CDP attached for this test only.',
       background,
       sampleSeconds: Number((elapsedMs / 1000).toFixed(2)),
       logicalProcessors: cpus().length,

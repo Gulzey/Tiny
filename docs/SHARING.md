@@ -4,7 +4,7 @@
 
 Send **Tiny-Setup.exe**. Your friends double-click it, install Tiny, and open Tiny. They do not need Node, npm, Rust, C++ tools, source files, or a command script. Windows may need the free Microsoft WebView2 runtime; the installer handles the standard runtime setup. This build is unsigned, so Windows may show an unknown-publisher warning.
 
-In Tiny, open **Server connection** on the sign-in screen and enter the host's server address. Every friend must use the same server. Use **Create a local account** to make an account there, then add each other's handles.
+The official Windows installer connects permanently to `https://tinybros.duckdns.org`. Ordinary users install, open, sign in, and send friend requests without entering networking details. There is no server selector in login or registration.
 
 ## Only the host runs the server
 
@@ -23,7 +23,7 @@ The installed Windows client supports a trusted LAN HTTP server without requirin
 
 ### Friends outside that network
 
-Running a server EXE does not make your PC reachable over the internet. You still need a reachable host address, network/firewall configuration, and HTTPS for accounts/messages on untrusted networks. Calls may need STUN and a TURN relay because some routers/firewalls block direct WebRTC connections. `TINY_ICE_SERVERS` configures those services. TURN can be self-hosted; a paid service is not needed for same-PC or reachable trusted LAN tests.
+Running a server EXE does not make your PC reachable over the internet. You still need a reachable host address, network/firewall configuration, and HTTPS for accounts/messages on untrusted networks. Calls need configured STUN and a reachable TURN fallback when routers/firewalls block direct WebRTC. `TINY_STUN_URLS`, `TINY_TURN_URLS`, and a server-only `TINY_TURN_SECRET` configure self-hosted coturn with expiring credentials.
 
 This prototype uses local password accounts. Google/email/SMS verification, account recovery, and public-server abuse controls are not implemented. Do not expose the seeded test server publicly as if it were production authentication.
 
@@ -39,7 +39,7 @@ This creates alice, bob, and charlie with initial password `tiny-local-demo`, ma
 
 ## Gaming and dark mode
 
-**Dark mode** appears on the sign-in screen and at the bottom of the friends panel. It uses a grey-blue background and remembers your choice.
+Tiny opens in its black dark theme by default. The optional light-theme toggle appears at the bottom of the signed-in sidebar.
 
 When Tiny is minimized or loses focus, it keeps the WebSocket and voice call but defers chat/sidebar repainting, stops animated avatar playback, detaches screen previews, and asks peers to stop sending it screen video. Returning to Tiny resumes the view. Your own explicitly shared screen continues being captured/sent to people who are watching; **Stop sharing** and **Leave call** release those devices.
 

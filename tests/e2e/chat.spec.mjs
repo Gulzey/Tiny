@@ -6,27 +6,25 @@ const password = 'test-password';
 test('create a local account, sign out, and sign back in', async ({ page }) => {
   const handle = `sam_${Date.now().toString(36)}`;
   await page.goto('/');
-  await page.getByRole('button', { name: /New here/ }).click();
-  await page.getByText('Server connection', { exact: true }).click();
-  await page.getByLabel('Server URL', { exact: true }).fill(server);
+  await expect(page.getByLabel('Server URL', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: /New to Tiny/ }).click();
+  await expect(page.getByLabel('Server URL', { exact: true })).toHaveCount(0);
   await page.getByLabel('Handle', { exact: true }).fill(handle);
   await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByLabel('Display name', { exact: true }).fill('Sam');
   await page
-    .getByRole('button', { name: 'Create local account', exact: true })
+    .getByRole('button', { name: 'Create account', exact: true })
     .click();
   await expect(
     page.getByRole('button', { name: 'Edit profile' }),
   ).toContainText('Sam');
   await page.getByRole('button', { name: 'Sign out', exact: true }).click();
   await expect(
-    page.getByRole('button', { name: 'Sign in locally', exact: true }),
+    page.getByRole('button', { name: 'Sign in', exact: true }),
   ).toBeVisible();
   await page.getByLabel('Handle', { exact: true }).fill(handle);
   await page.getByLabel('Password', { exact: true }).fill(password);
-  await page
-    .getByRole('button', { name: 'Sign in locally', exact: true })
-    .click();
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(
     page.getByRole('button', { name: 'Edit profile' }),
   ).toContainText('Sam');
@@ -37,8 +35,6 @@ async function login(page, handle) {
   const focus = await page.context().newCDPSession(page);
   await focus.send('Emulation.setFocusEmulationEnabled', { enabled: true });
   await page.goto('/');
-  await page.getByText('Server connection', { exact: true }).click();
-  await page.getByLabel(/server/i).fill(server);
   await page.getByLabel(/^handle/i).fill(handle);
   await page.getByLabel(/^password/i).fill(password);
   await page.getByRole('button', { name: /^sign in/i }).click();
@@ -73,9 +69,14 @@ test('friends, direct and group chats, live delivery, history, and profile updat
       .fill(handles[1]);
     await alice
       .getByRole('dialog')
-      .getByRole('button', { name: /add friend/i })
+      .getByRole('button', { name: /send request/i })
       .click();
     await expect(alice.getByRole('dialog')).not.toBeVisible();
+    await bob.getByRole('button', { name: /Requests · 1 new/i }).click();
+    await bob
+      .getByRole('dialog')
+      .getByRole('button', { name: 'Accept', exact: true })
+      .click();
     await expect(
       bob.getByText(handles[0], { exact: true }).first(),
     ).toBeVisible();
@@ -123,8 +124,15 @@ test('friends, direct and group chats, live delivery, history, and profile updat
       .fill(handles[2]);
     await alice
       .getByRole('dialog')
-      .getByRole('button', { name: /add friend/i })
+      .getByRole('button', { name: /send request/i })
       .click();
+    await request.patch(`${server}/api/friend-requests/${users[0].user.id}`, {
+      headers: { Authorization: `Bearer ${users[2].token}` },
+      data: { action: 'accept' },
+    });
+    await expect(
+      alice.getByRole('button', { name: new RegExp(handles[2]) }).first(),
+    ).toBeVisible();
     await alice.getByRole('button', { name: /new chat/i }).click();
     const dialog = alice.getByRole('dialog');
     await dialog

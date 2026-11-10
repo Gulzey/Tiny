@@ -28,6 +28,7 @@ export default defineConfig({
       command: 'npm run dev',
       url: 'http://127.0.0.1:1420/tests/e2e/harness.html',
       reuseExistingServer: false,
+      env: { VITE_TINY_SERVER_URL: 'http://127.0.0.1:8878' },
     },
   ],
 });

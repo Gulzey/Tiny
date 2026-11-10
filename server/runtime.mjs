@@ -1,5 +1,6 @@
 import { join, resolve } from 'node:path';
 import { homedir } from 'node:os';
+import { createRtcConfig, parseUrlList } from './rtc.mjs';
 
 export const SERVER_HELP = `Tiny Server
 
@@ -70,19 +71,15 @@ export function resolveServerSettings({
     throw new Error(
       'The listening address must be an IP address or hostname, without http:// or a port.',
     );
-  let iceServers;
-  try {
-    iceServers = JSON.parse(env.TINY_ICE_SERVERS || '[]');
-  } catch {
-    throw new Error('TINY_ICE_SERVERS must contain a JSON array.');
-  }
-  if (
-    !Array.isArray(iceServers) ||
-    iceServers.some((server) => !server || !server.urls)
-  )
-    throw new Error(
-      'TINY_ICE_SERVERS must contain an array of RTCIceServer objects.',
-    );
+  const stunUrls = parseUrlList(env.TINY_STUN_URLS || '', 'TINY_STUN_URLS');
+  const turnUrls = parseUrlList(env.TINY_TURN_URLS || '', 'TINY_TURN_URLS');
+  const turnCredentialTtl = Number(env.TINY_TURN_CREDENTIAL_TTL || 3600);
+  const rtcConfig = createRtcConfig({
+    stunUrls,
+    turnUrls,
+    turnSecret: env.TINY_TURN_SECRET || '',
+    credentialTtlSeconds: turnCredentialTtl,
+  });
   const defaultData = join(
     env.LOCALAPPDATA || join(homedir(), 'AppData', 'Local'),
     'Tiny Server',
@@ -96,8 +93,10 @@ export function resolveServerSettings({
     host,
     port: Number(portText),
     dbPath,
-    iceServers,
+    rtcConfig,
     localAuth: env.TINY_LOCAL_AUTH !== 'false',
+    registrationEnabled: env.TINY_REGISTRATION_ENABLED !== 'false',
+    trustProxy: env.TINY_TRUST_PROXY === 'loopback',
     allowedOrigins: env.TINY_ALLOWED_ORIGINS?.split(',')
       .map((origin) => origin.trim())
       .filter(Boolean),

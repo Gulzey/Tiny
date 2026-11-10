@@ -83,8 +83,8 @@ async function main() {
   }
   console.log(
     settings.localAuth
-      ? 'Local test sign-in is enabled. No Google, email, or phone provider is configured.'
-      : 'Local test sign-in is disabled. Existing sessions stay valid until logout or expiry.',
+      ? 'Password sign-in is enabled. No Google, email, or phone provider is configured.'
+      : 'Password sign-in is disabled. Existing sessions stay valid until logout or expiry.',
   );
   console.log(
     'No internet exposure, HTTPS, firewall changes, or call relay is set up automatically.',
