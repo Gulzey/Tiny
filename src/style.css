@@ -49,8 +49,8 @@ html[data-theme='light'] {
 }
 body {
   margin: 0;
-  width: var(--ui-viewport);
-  min-width: 240px;
+  width: 100%;
+  min-width: 360px;
   background: var(--bg);
   zoom: var(--ui-scale);
 }
