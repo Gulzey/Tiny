@@ -29,7 +29,7 @@ const DEFAULT_ORIGINS = [
   'tauri://localhost',
 ];
 const MAX_AVATAR = 10 * 1024 * 1024;
-const MAX_BODY = MAX_AVATAR * 1.4 + 4096;
+const MAX_BODY = MAX_AVATAR * 2.8 + 8192;
 const MAX_CALL = 4;
 const fail = (status, message) => {
   throw Object.assign(new Error(message), { status });
@@ -359,11 +359,13 @@ export function createTinyServer({
             body.avatar === undefined
               ? user.avatar
               : validateAvatar(body.avatar);
-          db.prepare('UPDATE users SET display_name=?,avatar=? WHERE id=?').run(
-            name,
-            avatar,
-            user.id,
-          );
+          const banner =
+            body.banner === undefined
+              ? user.banner
+              : validateAvatar(body.banner);
+          db.prepare(
+            'UPDATE users SET display_name=?,avatar=?,banner=? WHERE id=?',
+          ).run(name, avatar, banner, user.id);
           const friendIds = db
             .prepare('SELECT friend_id FROM friends WHERE user_id=?')
             .all(user.id)

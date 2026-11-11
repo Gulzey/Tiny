@@ -201,6 +201,7 @@ test('database migration preserves legacy password hashes and adds friend reques
       .prepare('SELECT * FROM users WHERE id=?')
       .get('legacy-id');
     assert.equal(row.password_version, 1);
+    assert.equal(row.banner, null);
     assert.equal(await verifyPassword(row, 'legacy-password'), true);
     assert.equal(await verifyPassword(row, 'wrong-password'), false);
     const created = await createAccount(
@@ -573,6 +574,13 @@ test('profile validation accepts PNG/JPEG/GIF and rejects disguised or oversized
     assert.equal(result.status, 200);
     assert.equal(result.body.avatar, avatar);
   }
+  const bannerResult = await request('/api/me', {
+    token: alice.token,
+    method: 'PATCH',
+    body: { banner: validImages[0] },
+  });
+  assert.equal(bannerResult.status, 200);
+  assert.equal(bannerResult.body.banner, validImages[0]);
   assert.throws(
     () =>
       validateAvatar(

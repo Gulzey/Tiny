@@ -283,6 +283,36 @@ body.resizing {
   padding: 2px 8px 18px;
   text-align: center;
 }
+.profile-banner {
+  width: 100%;
+  aspect-ratio: 3 / 1;
+  min-height: 72px;
+  max-height: 128px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--v3-accent) 28%, var(--v3-elevated)),
+    var(--v3-elevated)
+  );
+}
+.profile-banner img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  object-position: center;
+}
+.profile-card > .profile-banner + .avatar {
+  margin-top: -38px;
+  border: 4px solid var(--v3-panel);
+}
+.banner-preview {
+  width: 100%;
+}
+.banner-preview .profile-banner {
+  max-height: 140px;
+}
 .profile-card h2,
 .profile-card p {
   margin: 0;

@@ -199,9 +199,20 @@ test('friends, direct and group chats, live delivery, history, and profile updat
       .fill('Alice in Tiny');
     await alice
       .getByRole('dialog')
-      .locator('input[type="file"]')
+      .getByLabel('Profile picture')
       .setInputFiles({
         name: 'tiny.gif',
+        mimeType: 'image/gif',
+        buffer: Buffer.from(
+          'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
+          'base64',
+        ),
+      });
+    await alice
+      .getByRole('dialog')
+      .getByLabel('Profile banner')
+      .setInputFiles({
+        name: 'banner.gif',
         mimeType: 'image/gif',
         buffer: Buffer.from(
           'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
@@ -221,6 +232,7 @@ test('friends, direct and group chats, live delivery, history, and profile updat
     const stored = await state.json();
     expect(stored.user.displayName).toBe('Alice in Tiny');
     expect(stored.user.avatar).toMatch(/^data:image\/gif;base64,/);
+    expect(stored.user.banner).toMatch(/^data:image\/gif;base64,/);
     expect(
       stored.conversations.some((c) => c.isGroup && c.members.length === 3),
     ).toBe(true);

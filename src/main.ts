@@ -14,6 +14,7 @@ type User = {
   handle: string;
   displayName: string;
   avatar?: string | null;
+  banner?: string | null;
   friendsSince?: string | null;
 };
 type Message = {
@@ -193,6 +194,17 @@ function avatar(user: User, size = ''): HTMLElement {
       .slice(0, 1)
       .toUpperCase();
   return box;
+}
+function profileBanner(user: User): HTMLElement {
+  const banner = el('div', `profile-banner ${user.banner ? 'has-image' : ''}`);
+  if (user.banner) {
+    const image = el('img');
+    image.src = user.banner;
+    image.alt = '';
+    image.decoding = 'async';
+    banner.append(image);
+  }
+  return banner;
 }
 function brand(): HTMLElement {
   const box = el('div', 'brand');
@@ -857,6 +869,7 @@ function renderMembers(): void {
     const user = conversationUser(conversation);
     const card = el('section', 'profile-card');
     card.append(
+      profileBanner(user),
       avatar(user, 'large'),
       el('h2', '', user.displayName),
       el('p', 'muted', `@${user.handle}`),
@@ -907,6 +920,7 @@ function openUserProfile(user: User): void {
   const { body } = modal('Profile');
   const card = el('section', 'profile-card');
   card.append(
+    profileBanner(user),
     avatar(user, 'large'),
     el('h2', '', user.displayName),
     el('p', 'muted', `@${user.handle}`),
@@ -1655,6 +1669,8 @@ function openProfile(): void {
   const form = el('form', 'stack');
   const preview = el('div', 'profile-preview');
   preview.append(avatar(user, 'large'));
+  const bannerPreview = el('div', 'banner-preview');
+  bannerPreview.append(profileBanner(user));
   const display = input(
     'Display name',
     'displayName',
@@ -1665,8 +1681,12 @@ function openProfile(): void {
   display.field.maxLength = 48;
   const file = input('Profile picture', 'avatar', 'file');
   file.field.accept = 'image/png,image/jpeg,image/gif';
+  const bannerFile = input('Profile banner', 'banner', 'file');
+  bannerFile.field.accept = 'image/png,image/jpeg,image/gif';
   let image: string | null | undefined;
+  let bannerImage: string | null | undefined;
   let readingAvatar = false;
+  let readingBanner = false;
   file.field.addEventListener('change', async () => {
     const selectedFile = file.field.files?.[0];
     if (!selectedFile) return;
@@ -1697,6 +1717,36 @@ function openProfile(): void {
       showError(error);
     }
   });
+  bannerFile.field.addEventListener('change', async () => {
+    const selectedFile = bannerFile.field.files?.[0];
+    if (!selectedFile) return;
+    if (
+      !['image/png', 'image/jpeg', 'image/gif'].includes(selectedFile.type) ||
+      selectedFile.size > 10 * 1024 * 1024
+    ) {
+      bannerFile.field.value = '';
+      showError('Choose a PNG, JPEG, or GIF banner up to 10 MB.');
+      return;
+    }
+    try {
+      readingBanner = true;
+      submit.disabled = true;
+      bannerImage = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(new Error('Could not read that banner.'));
+        reader.readAsDataURL(selectedFile);
+      });
+      bannerPreview.replaceChildren(
+        profileBanner({ ...user, banner: bannerImage }),
+      );
+    } catch (error) {
+      showError(error);
+    } finally {
+      readingBanner = false;
+      submit.disabled = false;
+    }
+  });
   const remove = button(
     'Remove picture',
     () => {
@@ -1709,25 +1759,37 @@ function openProfile(): void {
   const submit = el('button', 'button primary', 'Save profile');
   submit.type = 'submit';
   form.append(
+    bannerPreview,
     preview,
     display.wrapper,
     file.wrapper,
+    bannerFile.wrapper,
     el(
       'p',
       'quiet',
       'PNG, JPEG, or GIF · up to 10 MB. Animated GIFs are supported.',
     ),
     remove,
+    button(
+      'Remove banner',
+      () => {
+        bannerImage = null;
+        bannerFile.field.value = '';
+        bannerPreview.replaceChildren(profileBanner({ ...user, banner: null }));
+      },
+      'text-button',
+    ),
     submit,
   );
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
-    if (readingAvatar) return;
+    if (readingAvatar || readingBanner) return;
     submit.disabled = true;
     try {
       await api('/api/me', 'PATCH', {
         displayName: display.field.value.trim(),
         ...(image === undefined ? {} : { avatar: image }),
+        ...(bannerImage === undefined ? {} : { banner: bannerImage }),
       });
       await refreshState();
       renderMessages(false, false);
