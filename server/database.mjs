@@ -36,7 +36,7 @@ export function openDatabase(path) {
     );
     CREATE TABLE IF NOT EXISTS friends (
       user_id TEXT NOT NULL REFERENCES users(id), friend_id TEXT NOT NULL REFERENCES users(id),
-      PRIMARY KEY (user_id, friend_id), CHECK (user_id != friend_id)
+      created_at TEXT, PRIMARY KEY (user_id, friend_id), CHECK (user_id != friend_id)
     );
     CREATE TABLE IF NOT EXISTS friend_requests (
       requester_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -55,7 +55,7 @@ export function openDatabase(path) {
     CREATE TABLE IF NOT EXISTS messages (
       id INTEGER PRIMARY KEY AUTOINCREMENT, conversation_id TEXT NOT NULL REFERENCES conversations(id),
       sender_id TEXT NOT NULL REFERENCES users(id), body TEXT NOT NULL, created_at TEXT NOT NULL,
-      client_id TEXT NOT NULL, UNIQUE(sender_id, client_id)
+      client_id TEXT NOT NULL, edited_at TEXT, deleted_at TEXT, UNIQUE(sender_id, client_id)
     );
     CREATE INDEX IF NOT EXISTS messages_conversation ON messages(conversation_id, id);
     CREATE INDEX IF NOT EXISTS members_user ON members(user_id);
@@ -67,6 +67,14 @@ export function openDatabase(path) {
     db.exec(
       'ALTER TABLE users ADD COLUMN password_version INTEGER NOT NULL DEFAULT 1',
     );
+  const friendColumns = db.prepare('PRAGMA table_info(friends)').all();
+  if (!friendColumns.some((column) => column.name === 'created_at'))
+    db.exec('ALTER TABLE friends ADD COLUMN created_at TEXT');
+  const messageColumns = db.prepare('PRAGMA table_info(messages)').all();
+  if (!messageColumns.some((column) => column.name === 'edited_at'))
+    db.exec('ALTER TABLE messages ADD COLUMN edited_at TEXT');
+  if (!messageColumns.some((column) => column.name === 'deleted_at'))
+    db.exec('ALTER TABLE messages ADD COLUMN deleted_at TEXT');
   db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(Date.now());
   return db;
 }
@@ -173,10 +181,9 @@ export async function seedDatabase(db) {
     for (const user of users)
       for (const friend of users)
         if (user.id !== friend.id) {
-          db.prepare('INSERT OR IGNORE INTO friends VALUES (?,?)').run(
-            user.id,
-            friend.id,
-          );
+          db.prepare(
+            'INSERT OR IGNORE INTO friends (user_id,friend_id) VALUES (?,?)',
+          ).run(user.id, friend.id);
         }
     if (
       !db

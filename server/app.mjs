@@ -28,7 +28,8 @@ const DEFAULT_ORIGINS = [
   'https://tauri.localhost',
   'tauri://localhost',
 ];
-const MAX_BODY = 2 * 1024 * 1024 * 1.4 + 4096;
+const MAX_AVATAR = 10 * 1024 * 1024;
+const MAX_BODY = MAX_AVATAR * 1.4 + 4096;
 const MAX_CALL = 4;
 const fail = (status, message) => {
   throw Object.assign(new Error(message), { status });
@@ -42,25 +43,27 @@ const messageView = (row) => ({
   id: row.id,
   conversationId: row.conversation_id,
   senderId: row.sender_id,
-  body: row.body,
+  body: row.deleted_at ? '' : row.body,
   createdAt: row.created_at,
+  editedAt: row.edited_at || null,
+  deletedAt: row.deleted_at || null,
   clientId: row.client_id,
 });
 
 export function validateAvatar(avatar) {
   if (avatar === null) return null;
   if (typeof avatar !== 'string' || avatar.length > MAX_BODY)
-    fail(400, 'Choose a PNG, JPEG, or GIF image smaller than 2 MB.');
+    fail(400, 'Choose a PNG, JPEG, or GIF image smaller than 10 MB.');
   const match =
     /^data:image\/(png|jpeg|gif);base64,([A-Za-z0-9+/]+={0,2})$/.exec(avatar);
   if (!match) fail(400, 'Choose a PNG, JPEG, or GIF image.');
   const bytes = Buffer.from(match[2], 'base64');
   if (
     !bytes.length ||
-    bytes.length > 2 * 1024 * 1024 ||
+    bytes.length > MAX_AVATAR ||
     bytes.toString('base64') !== match[2]
   )
-    fail(400, 'Image must be smaller than 2 MB and use valid base64.');
+    fail(400, 'Image must be smaller than 10 MB and use valid base64.');
   const valid =
     match[1] === 'png'
       ? bytes
@@ -213,7 +216,7 @@ export function createTinyServer({
       if (length > MAX_BODY)
         fail(
           413,
-          'Request too large. Profile pictures must be smaller than 2 MB.',
+          'Request too large. Profile pictures must be smaller than 10 MB.',
         );
       chunks.push(chunk);
     }
@@ -258,7 +261,7 @@ export function createTinyServer({
         );
         res.setHeader(
           'Access-Control-Allow-Methods',
-          'GET, POST, PATCH, OPTIONS',
+          'GET, POST, PATCH, DELETE, OPTIONS',
         );
       }
       if (req.method === 'OPTIONS') {
@@ -376,10 +379,13 @@ export function createTinyServer({
         if (path === '/api/state' && req.method === 'GET') {
           const friends = db
             .prepare(
-              'SELECT u.* FROM friends f JOIN users u ON u.id=f.friend_id WHERE f.user_id=? ORDER BY u.display_name',
+              'SELECT u.*, f.created_at AS friend_since FROM friends f JOIN users u ON u.id=f.friend_id WHERE f.user_id=? ORDER BY u.display_name',
             )
             .all(user.id)
-            .map(publicUser);
+            .map((row) => ({
+              ...publicUser(row),
+              friendsSince: row.friend_since || null,
+            }));
           const conversations = db
             .prepare(
               'SELECT c.id FROM conversations c JOIN members m ON m.conversation_id=c.id WHERE m.user_id=? ORDER BY c.created_at DESC',
@@ -486,14 +492,12 @@ export function createTinyServer({
               fail(404, 'That incoming request is no longer pending.');
             transaction(db, () => {
               if (body.action === 'accept') {
-                db.prepare('INSERT OR IGNORE INTO friends VALUES (?,?)').run(
-                  user.id,
-                  otherId,
-                );
-                db.prepare('INSERT OR IGNORE INTO friends VALUES (?,?)').run(
-                  otherId,
-                  user.id,
-                );
+                db.prepare(
+                  'INSERT OR IGNORE INTO friends (user_id,friend_id,created_at) VALUES (?,?,?)',
+                ).run(user.id, otherId, new Date().toISOString());
+                db.prepare(
+                  'INSERT OR IGNORE INTO friends (user_id,friend_id,created_at) VALUES (?,?,?)',
+                ).run(otherId, user.id, new Date().toISOString());
               }
               db.prepare(
                 'DELETE FROM friend_requests WHERE requester_id=? AND recipient_id=?',
@@ -502,6 +506,23 @@ export function createTinyServer({
           }
           broadcastUsers([user.id, otherId], { type: 'state' });
           if (body.action === 'accept') broadcastPresence();
+          return json(200, { ok: true });
+        }
+        const friendshipRoute = /^\/api\/friends\/([^/]+)$/.exec(path);
+        if (friendshipRoute && req.method === 'DELETE') {
+          const otherId = friendshipRoute[1];
+          const removed = transaction(db, () => {
+            const a = db
+              .prepare('DELETE FROM friends WHERE user_id=? AND friend_id=?')
+              .run(user.id, otherId);
+            db.prepare(
+              'DELETE FROM friends WHERE user_id=? AND friend_id=?',
+            ).run(otherId, user.id);
+            return a.changes;
+          });
+          if (!removed) fail(404, 'That friendship no longer exists.');
+          broadcastUsers([user.id, otherId], { type: 'state' });
+          broadcastPresence();
           return json(200, { ok: true });
         }
         if (path === '/api/conversations' && req.method === 'POST') {
@@ -613,6 +634,36 @@ export function createTinyServer({
             }
             return json(200, messageView(row));
           }
+        }
+        const messageItemRoute = /^\/api\/messages\/(\d+)$/.exec(path);
+        if (messageItemRoute && ['PATCH', 'DELETE'].includes(req.method)) {
+          const row = db
+            .prepare('SELECT * FROM messages WHERE id=?')
+            .get(Number(messageItemRoute[1]));
+          if (!row) fail(404, 'Message not found.');
+          requireMember(user.id, row.conversation_id);
+          if (row.sender_id !== user.id)
+            fail(403, 'Only the message author can change it.');
+          if (row.deleted_at) fail(409, 'That message was already deleted.');
+          if (req.method === 'PATCH') {
+            const body = await readJson(req);
+            const text = cleanText(body.body, 4000, 'Message');
+            db.prepare(
+              'UPDATE messages SET body=?, edited_at=? WHERE id=?',
+            ).run(text, new Date().toISOString(), row.id);
+          } else {
+            db.prepare(
+              "UPDATE messages SET body='', deleted_at=? WHERE id=?",
+            ).run(new Date().toISOString(), row.id);
+          }
+          const updated = db
+            .prepare('SELECT * FROM messages WHERE id=?')
+            .get(row.id);
+          broadcastConversation(row.conversation_id, {
+            type: 'message:update',
+            message: messageView(updated),
+          });
+          return json(200, messageView(updated));
         }
         fail(404, 'API route not found.');
       }

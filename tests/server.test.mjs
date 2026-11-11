@@ -485,6 +485,77 @@ test('friendship, private/group membership, durable messages and idempotent retr
   );
 });
 
+test('message authors can edit/delete and friendships can be removed without deleting history', async (t) => {
+  const { request, account } = await setup(t);
+  const alice = await account('alice');
+  const bob = await account('bob');
+  await makeFriends(request, alice, bob);
+  const room = await request('/api/conversations', {
+    token: alice.token,
+    method: 'POST',
+    body: { memberIds: [bob.user.id] },
+  });
+  const sent = await request(`/api/conversations/${room.body.id}/messages`, {
+    token: alice.token,
+    method: 'POST',
+    body: { body: 'before', clientId: 'editable' },
+  });
+  assert.equal(
+    (
+      await request(`/api/messages/${sent.body.id}`, {
+        token: bob.token,
+        method: 'PATCH',
+        body: { body: 'not mine' },
+      })
+    ).status,
+    403,
+  );
+  const edited = await request(`/api/messages/${sent.body.id}`, {
+    token: alice.token,
+    method: 'PATCH',
+    body: { body: 'after' },
+  });
+  assert.equal(edited.body.body, 'after');
+  assert.ok(edited.body.editedAt);
+  assert.equal(
+    (
+      await request(`/api/friends/${bob.user.id}`, {
+        token: alice.token,
+        method: 'DELETE',
+      })
+    ).status,
+    200,
+  );
+  assert.equal(
+    (await request('/api/state', { token: alice.token })).body.friends.length,
+    0,
+  );
+  assert.equal(
+    (
+      await request(`/api/conversations/${room.body.id}/messages`, {
+        token: alice.token,
+      })
+    ).body.messages[0].body,
+    'after',
+  );
+  const deleted = await request(`/api/messages/${sent.body.id}`, {
+    token: alice.token,
+    method: 'DELETE',
+  });
+  assert.equal(deleted.body.body, '');
+  assert.ok(deleted.body.deletedAt);
+  assert.equal(
+    (
+      await request('/api/friend-requests', {
+        token: alice.token,
+        method: 'POST',
+        body: { handle: 'bob' },
+      })
+    ).status,
+    200,
+  );
+});
+
 test('profile validation accepts PNG/JPEG/GIF and rejects disguised or oversized images', async (t) => {
   const { request, account } = await setup(t);
   const alice = await account('alice');
@@ -515,7 +586,10 @@ test('profile validation accepts PNG/JPEG/GIF and rejects disguised or oversized
     () =>
       validateAvatar(
         'data:image/gif;base64,' +
-          Buffer.alloc(2 * 1024 * 1024 + 1).toString('base64'),
+          Buffer.concat([
+            Buffer.from('GIF89a'),
+            Buffer.alloc(10 * 1024 * 1024),
+          ]).toString('base64'),
       ),
     /smaller/,
   );
