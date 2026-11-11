@@ -103,6 +103,17 @@ const activity = createActivityPolicy((active) => {
     renderCall();
   }
 });
+document.addEventListener('keydown', (event) => {
+  if (!data || event.defaultPrevented) return;
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+    event.preventDefault();
+    document.querySelector<HTMLInputElement>('.sidebar-top input')?.focus();
+  }
+  if ((event.ctrlKey || event.metaKey) && event.key === ',') {
+    event.preventDefault();
+    if (!document.querySelector('dialog[open]')) openSettings();
+  }
+});
 function deferPaint(): boolean {
   if (forcePaint || activity.active) return false;
   paintPending = true;
@@ -748,6 +759,7 @@ function renderSidebar(): void {
     friends.append(el('p', 'sidebar-empty', 'Add a friend by their handle.'));
   sidebar.append(friends);
   const bottom = el('div', 'sidebar-bottom');
+  const actions = el('div', 'dock-actions');
   const mic = button(
     calls.state.muted ? 'M' : 'Mic',
     () => calls.toggleMute(),
@@ -766,14 +778,22 @@ function renderSidebar(): void {
     'aria-label',
     calls.state.deafened ? 'Undeafen' : 'Deafen',
   );
-  const settings = button('Set', openSettings, 'dock-button');
+  const settings = button('\u2699', openSettings, 'dock-button');
   settings.setAttribute('aria-label', 'Settings');
+  settings.title = 'Settings (Ctrl+,)';
   const theme = createThemeToggle();
   theme.textContent = '◐';
   theme.classList.add('dock-button');
+  theme.textContent = '\u25D0';
+  theme.title = 'Switch theme';
   const exit = button('↪', () => signOut(), 'dock-button');
   exit.setAttribute('aria-label', 'Sign out');
-  bottom.append(profile, mic, deafen, settings, theme, exit);
+  exit.textContent = '\u21AA';
+  exit.title = 'Sign out';
+  mic.title = mic.getAttribute('aria-label') || '';
+  deafen.title = deafen.getAttribute('aria-label') || '';
+  actions.append(mic, deafen, settings, theme, exit);
+  bottom.append(profile, actions);
   sidebar.append(bottom);
 }
 function renderHeader(): void {

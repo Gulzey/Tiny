@@ -20,12 +20,12 @@ test('black dark mode is the default and light mode remains optional', async ({
   ).toBeVisible();
   await expect(page.locator('.conversation')).toHaveCSS(
     'background-color',
-    'rgb(16, 31, 35)',
+    'rgb(9, 21, 24)',
   );
   await page.getByRole('button', { name: 'Edit profile' }).click();
   await expect(page.getByRole('dialog')).toHaveCSS(
     'background-color',
-    'rgb(23, 43, 48)',
+    'rgb(16, 36, 41)',
   );
   await page.screenshot({ path: 'test-results/tiny-dark.png' });
   await page
