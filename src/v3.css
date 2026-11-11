@@ -2,6 +2,12 @@ body {
   zoom: 1;
   background: var(--v3-bg);
   color: var(--v3-text);
+  --primary: var(--v3-accent);
+  --accent: var(--v3-accent);
+  --surface: var(--v3-panel);
+  --raised: var(--v3-elevated);
+  --text: var(--v3-text);
+  --muted: var(--v3-muted);
 }
 .app-shell {
   width: 100%;
@@ -45,6 +51,13 @@ body {
 .rail-button.selected {
   background: var(--v3-elevated);
   color: var(--v3-accent);
+}
+.friends-icon {
+  font-size: 0;
+}
+.friends-icon::before {
+  content: '◎';
+  font-size: 21px;
 }
 .sidebar {
   width: auto;
@@ -103,7 +116,7 @@ body {
   border: 0;
 }
 .dock-button {
-  min-width: 32px;
+  min-width: 28px;
   height: 32px;
   padding: 0 5px;
   border: 0;

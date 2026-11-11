@@ -748,22 +748,32 @@ function renderSidebar(): void {
     friends.append(el('p', 'sidebar-empty', 'Add a friend by their handle.'));
   sidebar.append(friends);
   const bottom = el('div', 'sidebar-bottom');
-  bottom.append(
-    profile,
-    button(
-      calls.state.muted ? 'Mute' : 'Mic',
-      () => calls.toggleMute(),
-      'dock-button',
-    ),
-    button(
-      calls.state.deafened ? 'Hear' : 'Deafen',
-      () => calls.toggleDeafen(),
-      'dock-button',
-    ),
-    button('Settings', openSettings, 'dock-button'),
-    createThemeToggle(),
-    button('Sign out', () => signOut(), 'dock-button'),
+  const mic = button(
+    calls.state.muted ? 'M' : 'Mic',
+    () => calls.toggleMute(),
+    'dock-button',
   );
+  mic.setAttribute(
+    'aria-label',
+    calls.state.muted ? 'Unmute microphone' : 'Mute microphone',
+  );
+  const deafen = button(
+    calls.state.deafened ? 'Hear' : 'Audio',
+    () => calls.toggleDeafen(),
+    'dock-button',
+  );
+  deafen.setAttribute(
+    'aria-label',
+    calls.state.deafened ? 'Undeafen' : 'Deafen',
+  );
+  const settings = button('Set', openSettings, 'dock-button');
+  settings.setAttribute('aria-label', 'Settings');
+  const theme = createThemeToggle();
+  theme.textContent = '◐';
+  theme.classList.add('dock-button');
+  const exit = button('↪', () => signOut(), 'dock-button');
+  exit.setAttribute('aria-label', 'Sign out');
+  bottom.append(profile, mic, deafen, settings, theme, exit);
   sidebar.append(bottom);
 }
 function renderHeader(): void {
