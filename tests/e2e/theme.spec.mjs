@@ -20,12 +20,12 @@ test('black dark mode is the default and light mode remains optional', async ({
   ).toBeVisible();
   await expect(page.locator('.conversation')).toHaveCSS(
     'background-color',
-    'rgb(14, 16, 20)',
+    'rgb(16, 31, 35)',
   );
   await page.getByRole('button', { name: 'Edit profile' }).click();
   await expect(page.getByRole('dialog')).toHaveCSS(
     'background-color',
-    'rgb(14, 16, 20)',
+    'rgb(23, 43, 48)',
   );
   await page.screenshot({ path: 'test-results/tiny-dark.png' });
   await page
@@ -113,4 +113,28 @@ test('background messages are stored without repainting and appear on return', a
   await expect(
     page.getByRole('log').getByText(text, { exact: true }),
   ).toBeVisible();
+});
+
+test('desktop panels resize, persist, collapse, and remain usable at target sizes', async ({
+  page,
+  request,
+}) => {
+  const handle = `layout_${Date.now().toString(36)}`;
+  await request.post('http://127.0.0.1:8878/api/auth/local', {
+    data: { handle, password: 'test-password', create: true },
+  });
+  await page.setViewportSize({ width: 1120, height: 760 });
+  await page.goto('/');
+  await page.getByLabel('Handle', { exact: true }).fill(handle);
+  await page.getByLabel('Password', { exact: true }).fill('test-password');
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  const left = page.locator('.resize-handle.left');
+  await left.focus();
+  await left.press('ArrowRight');
+  await expect(page.locator('.app-shell')).toHaveCSS('--left-width', '262px');
+  await page.reload();
+  await expect(page.locator('.app-shell')).toHaveCSS('--left-width', '262px');
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await expect(page.locator('.conversation')).toBeVisible();
+  await expect(page.locator('.members-panel')).toBeVisible();
 });

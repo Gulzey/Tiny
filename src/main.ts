@@ -1,4 +1,6 @@
 import './style.css';
+import './v3.css';
+import './v3.css';
 import { TinyCalls } from './calls';
 import { initTheme, createThemeToggle } from './theme';
 import { createActivityPolicy } from './activity';
@@ -12,6 +14,7 @@ type User = {
   handle: string;
   displayName: string;
   avatar?: string | null;
+  friendsSince?: string | null;
 };
 type Message = {
   id: number;
@@ -19,6 +22,8 @@ type Message = {
   senderId: string;
   body: string;
   createdAt: string;
+  editedAt?: string | null;
+  deletedAt?: string | null;
 };
 type Conversation = {
   id: string;
@@ -74,6 +79,13 @@ let pendingBody = '';
 let pendingConversation = '';
 let currentDraft = '';
 const drafts = new Map<string, string>();
+const scrollPositions = new Map<string, number>();
+let conversationFilter = '';
+let rightCollapsed = false;
+let leftWidth = 250;
+let rightWidth = 240;
+const mutedConversations = new Map<string, number>();
+const hiddenConversations = new Set<string>();
 const mediaNodes = new Map<string, HTMLMediaElement>();
 let calls: TinyCalls;
 let paintPending = false;
@@ -416,13 +428,104 @@ async function refreshState(): Promise<void> {
 async function enterApp(): Promise<void> {
   destroyed = false;
   data = await api<State>('/api/state');
+  restoreLayout();
+  const remembered = localStorage.getItem(accountKey('last-conversation'));
+  selected = data.conversations.some((item) => item.id === remembered)
+    ? remembered!
+    : data.conversations[0]?.id || '';
   renderApp();
   connect();
+  if (selected) void selectConversation(selected).catch(showError);
+}
+function accountKey(name: string): string {
+  return `tiny.v3:${serverUrl}:${data?.user.id || 'guest'}:${name}`;
+}
+function restoreLayout(): void {
+  leftWidth = Math.max(
+    190,
+    Math.min(
+      380,
+      Number(localStorage.getItem(accountKey('left-width'))) || 250,
+    ),
+  );
+  rightWidth = Math.max(
+    190,
+    Math.min(
+      360,
+      Number(localStorage.getItem(accountKey('right-width'))) || 240,
+    ),
+  );
+  rightCollapsed = localStorage.getItem(accountKey('right-collapsed')) === '1';
+  try {
+    const saved = JSON.parse(localStorage.getItem(accountKey('mutes')) || '{}');
+    for (const [id, until] of Object.entries(saved))
+      mutedConversations.set(id, Number(until));
+    for (const id of JSON.parse(
+      localStorage.getItem(accountKey('hidden')) || '[]',
+    ))
+      hiddenConversations.add(id);
+  } catch {
+    /* Ignore damaged local preferences. */
+  }
+}
+function saveLayout(): void {
+  localStorage.setItem(accountKey('left-width'), String(leftWidth));
+  localStorage.setItem(accountKey('right-width'), String(rightWidth));
+  localStorage.setItem(
+    accountKey('right-collapsed'),
+    rightCollapsed ? '1' : '0',
+  );
+}
+function saveConversationPreferences(): void {
+  localStorage.setItem(
+    accountKey('mutes'),
+    JSON.stringify(Object.fromEntries(mutedConversations)),
+  );
+  localStorage.setItem(
+    accountKey('hidden'),
+    JSON.stringify([...hiddenConversations]),
+  );
 }
 function renderApp(): void {
   forcePaint = true;
   root.replaceChildren();
   const shell = el('main', 'app-shell');
+  shell.style.setProperty('--left-width', `${leftWidth}px`);
+  shell.style.setProperty(
+    '--right-width',
+    rightCollapsed ? '0px' : `${rightWidth}px`,
+  );
+  const rail = el('nav', 'nav-rail');
+  rail.setAttribute('aria-label', 'Tiny navigation');
+  const home = button(
+    '',
+    () => {
+      selected = '';
+      renderAll();
+    },
+    'rail-logo',
+  );
+  home.append(brand());
+  rail.append(
+    home,
+    button(
+      'Friends',
+      () => {
+        selected = '';
+        renderAll();
+      },
+      'rail-button friends-icon',
+    ),
+  );
+  for (const chat of data?.conversations.filter((item) => item.isGroup) || []) {
+    const item = button(
+      conversationTitle(chat).slice(0, 1).toUpperCase(),
+      () => selectConversation(chat.id),
+      `rail-button ${selected === chat.id ? 'selected' : ''}`,
+    );
+    item.title = conversationTitle(chat);
+    rail.append(item);
+  }
   const sidebar = el('aside', 'sidebar');
   sidebar.id = 'sidebar';
   const main = el('section', 'conversation');
@@ -437,7 +540,11 @@ function renderApp(): void {
   const composer = el('div', 'composer-host');
   composer.id = 'composer-host';
   main.append(header, call, content, composer);
-  shell.append(sidebar, main);
+  const leftDivider = createResizeHandle('left');
+  const rightDivider = createResizeHandle('right');
+  const members = el('aside', 'members-panel');
+  members.id = 'members-panel';
+  shell.append(rail, sidebar, leftDivider, main, rightDivider, members);
   const notices = el('div', 'notices');
   notices.id = 'notices';
   root.append(shell, notices);
@@ -446,8 +553,75 @@ function renderApp(): void {
   renderMessages();
   renderComposer();
   renderCall();
+  renderMembers();
   forcePaint = false;
   if (!activity.active) syncBackgroundMedia(false);
+}
+function renderAll(): void {
+  renderSidebar();
+  renderHeader();
+  renderMessages();
+  renderComposer();
+  renderMembers();
+}
+function createResizeHandle(side: 'left' | 'right'): HTMLDivElement {
+  const handle = el('div', `resize-handle ${side}`);
+  handle.tabIndex = 0;
+  handle.setAttribute('role', 'separator');
+  handle.setAttribute('aria-orientation', 'vertical');
+  const reset = () => {
+    if (side === 'left') leftWidth = 250;
+    else rightWidth = 240;
+    applyLayout();
+  };
+  handle.addEventListener('dblclick', reset);
+  handle.addEventListener('keydown', (event) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home'].includes(event.key)) return;
+    event.preventDefault();
+    if (event.key === 'Home') return reset();
+    const delta = event.key === 'ArrowRight' ? 12 : -12;
+    if (side === 'left')
+      leftWidth = Math.max(190, Math.min(380, leftWidth + delta));
+    else rightWidth = Math.max(190, Math.min(360, rightWidth - delta));
+    applyLayout();
+  });
+  handle.addEventListener('pointerdown', (event) => {
+    event.preventDefault();
+    handle.setPointerCapture(event.pointerId);
+    document.body.classList.add('resizing');
+    const start = event.clientX,
+      initial = side === 'left' ? leftWidth : rightWidth;
+    const move = (next: PointerEvent) => {
+      if (side === 'left')
+        leftWidth = Math.max(
+          190,
+          Math.min(380, initial + next.clientX - start),
+        );
+      else
+        rightWidth = Math.max(
+          190,
+          Math.min(360, initial + start - next.clientX),
+        );
+      applyLayout(false);
+    };
+    const up = () => {
+      document.body.classList.remove('resizing');
+      handle.removeEventListener('pointermove', move);
+      saveLayout();
+    };
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', up, { once: true });
+  });
+  return handle;
+}
+function applyLayout(save = true): void {
+  const shell = document.querySelector<HTMLElement>('.app-shell');
+  shell?.style.setProperty('--left-width', `${leftWidth}px`);
+  shell?.style.setProperty(
+    '--right-width',
+    rightCollapsed ? '0px' : `${rightWidth}px`,
+  );
+  if (save) saveLayout();
 }
 function renderSidebar(): void {
   if (deferPaint()) return;
@@ -455,7 +629,19 @@ function renderSidebar(): void {
   if (!sidebar || !data) return;
   sidebar.replaceChildren();
   const top = el('div', 'sidebar-top');
-  top.append(brand());
+  const search = el('input');
+  search.type = 'search';
+  search.placeholder = 'Search chats';
+  search.value = conversationFilter;
+  search.setAttribute('aria-label', 'Search conversations');
+  search.addEventListener('input', () => {
+    conversationFilter = search.value;
+    for (const row of sidebar.querySelectorAll<HTMLElement>('.chat-row'))
+      row.hidden = !row.textContent
+        ?.toLowerCase()
+        .includes(conversationFilter.toLowerCase());
+  });
+  top.append(search);
   const status = el(
     'span',
     `connection ${connection === 'Connected' ? 'connected' : ''}`,
@@ -471,7 +657,7 @@ function renderSidebar(): void {
   );
   profile.append(avatar(data.user), name, el('span', 'profile-edit', 'Edit'));
   profile.setAttribute('aria-label', 'Edit profile');
-  sidebar.append(top, profile);
+  sidebar.append(top);
   const chatHeading = el('div', 'list-heading');
   chatHeading.append(
     el('h2', '', 'Conversations'),
@@ -480,16 +666,20 @@ function renderSidebar(): void {
   sidebar.append(chatHeading);
   const chats = el('nav', 'chat-list');
   chats.setAttribute('aria-label', 'Conversations');
-  for (const conversation of [...data.conversations].sort((a, b) =>
-    String(b.lastMessage?.createdAt || '').localeCompare(
-      String(a.lastMessage?.createdAt || ''),
-    ),
-  )) {
+  for (const conversation of [...data.conversations]
+    .filter((item) => !hiddenConversations.has(item.id))
+    .sort((a, b) =>
+      String(b.lastMessage?.createdAt || '').localeCompare(
+        String(a.lastMessage?.createdAt || ''),
+      ),
+    )) {
     const row = button(
       '',
       () => selectConversation(conversation.id),
       `chat-row ${selected === conversation.id ? 'selected' : ''}`,
     );
+    if ((mutedConversations.get(conversation.id) || 0) > Date.now())
+      row.classList.add('muted');
     if (conversation.isGroup)
       row.append(el('span', 'avatar group-avatar', '✳'));
     else row.append(avatar(conversationUser(conversation)));
@@ -506,6 +696,13 @@ function renderSidebar(): void {
     if (conversation.callParticipants?.length)
       row.append(el('span', 'call-dot', '●'));
     row.setAttribute('aria-label', `Open ${conversationTitle(conversation)}`);
+    row.hidden = !conversationTitle(conversation)
+      .toLowerCase()
+      .includes(conversationFilter.toLowerCase());
+    row.addEventListener('contextmenu', (event) => {
+      event.preventDefault();
+      openConversationMenu(event, conversation);
+    });
     chats.append(row);
   }
   if (!data.conversations.length)
@@ -552,10 +749,20 @@ function renderSidebar(): void {
   sidebar.append(friends);
   const bottom = el('div', 'sidebar-bottom');
   bottom.append(
+    profile,
+    button(
+      calls.state.muted ? 'Mute' : 'Mic',
+      () => calls.toggleMute(),
+      'dock-button',
+    ),
+    button(
+      calls.state.deafened ? 'Hear' : 'Deafen',
+      () => calls.toggleDeafen(),
+      'dock-button',
+    ),
+    button('Settings', openSettings, 'dock-button'),
     createThemeToggle(),
-    button('Settings', openSettings, 'text-button'),
-    button('Check updates', () => checkForUpdates(), 'text-button'),
-    button('Sign out', () => signOut(), 'text-button'),
+    button('Sign out', () => signOut(), 'dock-button'),
   );
   sidebar.append(bottom);
 }
@@ -592,14 +799,133 @@ function renderHeader(): void {
     calls.state.joining ||
     connection !== 'Connected';
   header.append(start);
+  header.append(
+    button(
+      rightCollapsed ? 'Show people' : 'Hide people',
+      () => {
+        rightCollapsed = !rightCollapsed;
+        applyLayout();
+        renderHeader();
+      },
+      'text-button members-toggle',
+    ),
+  );
+}
+function renderMembers(): void {
+  const panel = document.querySelector<HTMLElement>('#members-panel');
+  if (!panel || !data) return;
+  panel.replaceChildren();
+  const conversation = data.conversations.find((item) => item.id === selected);
+  if (!conversation) {
+    panel.append(el('h2', '', 'Friends'));
+    for (const friend of data.friends) panel.append(userRow(friend));
+    if (!data.friends.length)
+      panel.append(el('p', 'muted', 'Your friends will appear here.'));
+    return;
+  }
+  if (!conversation.isGroup) {
+    const user = conversationUser(conversation);
+    const card = el('section', 'profile-card');
+    card.append(
+      avatar(user, 'large'),
+      el('h2', '', user.displayName),
+      el('p', 'muted', `@${user.handle}`),
+      el(
+        'span',
+        `presence-label ${online.has(user.id) ? 'online' : ''}`,
+        online.has(user.id) ? 'Online' : 'Offline',
+      ),
+    );
+    if (user.friendsSince)
+      card.append(
+        el(
+          'p',
+          'muted',
+          `Friends since ${new Date(user.friendsSince).toLocaleDateString()}`,
+        ),
+      );
+    card.append(
+      button('View profile', () => openUserProfile(user), 'button subtle'),
+      button('Remove friend', () => removeFriend(user), 'text-button danger'),
+    );
+    panel.append(card);
+    return;
+  }
+  panel.append(el('h2', '', `Members · ${conversation.members.length}`));
+  const sorted = [...conversation.members].sort(
+    (a, b) =>
+      Number(online.has(b.id)) - Number(online.has(a.id)) ||
+      a.displayName.localeCompare(b.displayName),
+  );
+  for (const user of sorted) panel.append(userRow(user));
+}
+function userRow(user: User): HTMLButtonElement {
+  const row = button('', () => openUserProfile(user), 'member-row');
+  row.append(
+    avatar(user, 'small'),
+    el('span', '', user.displayName),
+    el('span', `presence ${online.has(user.id) ? 'online' : ''}`),
+  );
+  row.addEventListener('contextmenu', (event) => {
+    event.preventDefault();
+    openUserMenu(event, user);
+  });
+  return row;
+}
+function openUserProfile(user: User): void {
+  if (!data) return;
+  const { body } = modal('Profile');
+  const card = el('section', 'profile-card');
+  card.append(
+    avatar(user, 'large'),
+    el('h2', '', user.displayName),
+    el('p', 'muted', `@${user.handle}`),
+    el('p', '', online.has(user.id) ? 'Online' : 'Offline'),
+  );
+  const friend = data.friends.some((item) => item.id === user.id);
+  if (user.id !== data.user.id) {
+    if (friend)
+      card.append(
+        button('Message', () => createChat([user.id]), 'button primary'),
+        button('Remove friend', () => removeFriend(user), 'button danger'),
+      );
+    else
+      card.append(
+        button(
+          'Add friend',
+          () => sendFriendRequest(user.handle),
+          'button primary',
+        ),
+      );
+  }
+  body.append(card);
+}
+async function sendFriendRequest(handle: string): Promise<void> {
+  await api('/api/friend-requests', 'POST', { handle });
+  await refreshState();
+}
+async function removeFriend(user: User): Promise<void> {
+  if (
+    !confirm(
+      `Remove ${user.displayName} from your friends? Your message history will stay.`,
+    )
+  )
+    return;
+  await api(`/api/friends/${encodeURIComponent(user.id)}`, 'DELETE');
+  await refreshState();
 }
 async function joinCall(conversationId: string): Promise<void> {
   calls.configure(await refreshIce(), forceRelayTest);
   await calls.join(conversationId);
 }
 async function selectConversation(id: string): Promise<void> {
-  if (selected) drafts.set(selected, currentDraft);
+  if (selected) {
+    drafts.set(selected, currentDraft);
+    const oldArea = document.querySelector<HTMLElement>('#message-area');
+    if (oldArea) scrollPositions.set(selected, oldArea.scrollTop);
+  }
   selected = id;
+  localStorage.setItem(accountKey('last-conversation'), id);
   currentDraft = drafts.get(id) || '';
   messages = [];
   hasMore = false;
@@ -607,6 +933,7 @@ async function selectConversation(id: string): Promise<void> {
   renderHeader();
   renderMessages(true);
   renderComposer();
+  renderMembers();
   const generation = ++messageGeneration;
   try {
     const result = await api<{ messages: Message[]; hasMore: boolean }>(
@@ -623,6 +950,9 @@ async function selectConversation(id: string): Promise<void> {
     ].sort((a, b) => a.id - b.id);
     hasMore = result.hasMore;
     renderMessages();
+    const area = document.querySelector<HTMLElement>('#message-area');
+    if (area && scrollPositions.has(id))
+      area.scrollTop = scrollPositions.get(id)!;
   } catch (error) {
     if (generation === messageGeneration) {
       renderMessages();
@@ -692,7 +1022,15 @@ function renderMessages(loading = false, scroll = true): void {
       `message ${message.senderId === data.user.id ? 'own' : ''}`,
     );
     row.dataset.messageId = String(message.id);
-    if (user) row.append(avatar(user, 'small'));
+    if (user) {
+      const avatarButton = button(
+        '',
+        () => openUserProfile(user),
+        'avatar-button',
+      );
+      avatarButton.append(avatar(user, 'small'));
+      row.append(avatarButton);
+    }
     const content = el('div', 'message-content');
     const meta = el('div', 'message-meta');
     const date = new Date(message.createdAt);
@@ -705,9 +1043,26 @@ function renderMessages(loading = false, scroll = true): void {
     );
     time.dateTime = message.createdAt;
     time.title = date.toLocaleString();
-    meta.append(el('strong', '', user?.displayName || 'Friend'), time);
-    content.append(meta, el('p', 'message-body', message.body));
+    const sender = button(
+      user?.displayName || 'Friend',
+      () => user && openUserProfile(user),
+      'message-sender',
+    );
+    meta.append(sender, time);
+    if (message.editedAt) meta.append(el('span', 'edited-label', '(edited)'));
+    content.append(
+      meta,
+      el(
+        'p',
+        `message-body ${message.deletedAt ? 'deleted' : ''}`,
+        message.deletedAt ? 'Message deleted' : message.body,
+      ),
+    );
     row.append(content);
+    row.addEventListener('contextmenu', (event) => {
+      event.preventDefault();
+      openMessageMenu(event, message, user);
+    });
     log.append(row);
   }
   area.append(log);
@@ -802,6 +1157,82 @@ function receiveMessage(message: Message): void {
   }
   renderSidebar();
 }
+function updateMessage(message: Message): void {
+  const index = messages.findIndex((item) => item.id === message.id);
+  if (index >= 0) messages[index] = message;
+  if (data) {
+    const conversation = data.conversations.find(
+      (item) => item.id === message.conversationId,
+    );
+    if (conversation?.lastMessage?.id === message.id)
+      conversation.lastMessage = message;
+  }
+  renderMessages(false, false);
+  renderSidebar();
+}
+function openMessageMenu(
+  event: MouseEvent,
+  message: Message,
+  user?: User,
+): void {
+  if (!data) return;
+  const own = message.senderId === data.user.id;
+  const items: MenuItem[] = [];
+  if (!message.deletedAt)
+    items.push(
+      {
+        label: 'Reply',
+        action: () => {
+          const box =
+            document.querySelector<HTMLTextAreaElement>('.composer textarea');
+          if (box) {
+            box.value = `@${user?.handle || 'friend'} `;
+            box.focus();
+            currentDraft = box.value;
+          }
+        },
+      },
+      {
+        label: 'Copy message text',
+        action: () => navigator.clipboard.writeText(message.body),
+      },
+    );
+  items.push({
+    label: 'Copy message ID',
+    action: () => navigator.clipboard.writeText(String(message.id)),
+  });
+  if (user)
+    items.push({
+      label: 'View sender profile',
+      action: () => openUserProfile(user),
+    });
+  if (own && !message.deletedAt)
+    items.push(
+      {
+        label: 'Edit message',
+        action: async () => {
+          const body = prompt('Edit message', message.body)?.trim();
+          if (!body || body === message.body) return;
+          updateMessage(
+            await api<Message>(`/api/messages/${message.id}`, 'PATCH', {
+              body,
+            }),
+          );
+        },
+      },
+      {
+        label: 'Delete message',
+        danger: true,
+        action: async () => {
+          if (!confirm('Delete this message?')) return;
+          updateMessage(
+            await api<Message>(`/api/messages/${message.id}`, 'DELETE'),
+          );
+        },
+      },
+    );
+  openContextMenu(event, items);
+}
 
 function connect(): void {
   if (destroyed || !token) return;
@@ -833,9 +1264,11 @@ function connect(): void {
     }
     if (packet.type === 'state') void refreshState().catch(showError);
     if (packet.type === 'message') receiveMessage(packet.message);
+    if (packet.type === 'message:update') updateMessage(packet.message);
     if (packet.type === 'presence') {
       online = new Set(packet.userIds);
       renderSidebar();
+      renderMembers();
     }
     if (packet.type === 'call:state' && data) {
       const conversation = data.conversations.find(
@@ -930,6 +1363,107 @@ function modal(title: string): {
   });
   dialog.showModal();
   return { dialog, body, close };
+}
+type MenuItem = { label: string; action: () => unknown; danger?: boolean };
+function openContextMenu(event: MouseEvent, items: MenuItem[]): void {
+  document.querySelector('.context-menu')?.remove();
+  const menu = el('div', 'context-menu');
+  menu.setAttribute('role', 'menu');
+  menu.tabIndex = -1;
+  for (const item of items) {
+    const option = button(
+      item.label,
+      () => {
+        menu.remove();
+        return item.action();
+      },
+      `context-item ${item.danger ? 'danger' : ''}`,
+    );
+    option.setAttribute('role', 'menuitem');
+    menu.append(option);
+  }
+  root.append(menu);
+  const bounds = menu.getBoundingClientRect();
+  menu.style.left = `${Math.max(8, Math.min(event.clientX, innerWidth - bounds.width - 8))}px`;
+  menu.style.top = `${Math.max(8, Math.min(event.clientY, innerHeight - bounds.height - 8))}px`;
+  menu.querySelector<HTMLButtonElement>('button')?.focus();
+  const close = (next: Event) => {
+    if (!menu.contains(next.target as Node)) menu.remove();
+  };
+  setTimeout(() => addEventListener('pointerdown', close, { once: true }), 0);
+  menu.addEventListener('keydown', (key) => {
+    if (key.key === 'Escape') menu.remove();
+    const options = [...menu.querySelectorAll<HTMLButtonElement>('button')];
+    const index = options.indexOf(document.activeElement as HTMLButtonElement);
+    if (key.key === 'ArrowDown') {
+      key.preventDefault();
+      options[(index + 1) % options.length]?.focus();
+    }
+    if (key.key === 'ArrowUp') {
+      key.preventDefault();
+      options[(index - 1 + options.length) % options.length]?.focus();
+    }
+  });
+}
+function openConversationMenu(
+  event: MouseEvent,
+  conversation: Conversation,
+): void {
+  const muted = (mutedConversations.get(conversation.id) || 0) > Date.now();
+  const mute = (duration: number) => {
+    mutedConversations.set(
+      conversation.id,
+      duration === Infinity ? Number.MAX_SAFE_INTEGER : Date.now() + duration,
+    );
+    saveConversationPreferences();
+    renderSidebar();
+  };
+  openContextMenu(event, [
+    {
+      label: 'Open conversation',
+      action: () => selectConversation(conversation.id),
+    },
+    ...(muted
+      ? [
+          {
+            label: 'Unmute conversation',
+            action: () => {
+              mutedConversations.delete(conversation.id);
+              saveConversationPreferences();
+              renderSidebar();
+            },
+          },
+        ]
+      : [
+          { label: 'Mute for 1 hour', action: () => mute(3_600_000) },
+          { label: 'Mute for 8 hours', action: () => mute(28_800_000) },
+          { label: 'Mute for 24 hours', action: () => mute(86_400_000) },
+          { label: 'Mute indefinitely', action: () => mute(Infinity) },
+        ]),
+    {
+      label: 'Close from sidebar',
+      action: () => {
+        hiddenConversations.add(conversation.id);
+        saveConversationPreferences();
+        renderSidebar();
+      },
+    },
+  ]);
+}
+function openUserMenu(event: MouseEvent, user: User): void {
+  if (!data) return;
+  const friend = data.friends.some((item) => item.id === user.id);
+  openContextMenu(event, [
+    { label: 'View profile', action: () => openUserProfile(user) },
+    { label: 'Message', action: () => createChat([user.id]) },
+    friend
+      ? {
+          label: 'Remove friend',
+          action: () => removeFriend(user),
+          danger: true,
+        }
+      : { label: 'Add friend', action: () => sendFriendRequest(user.handle) },
+  ]);
 }
 function openAddFriend(): void {
   const { body, close } = modal('Send a friend request');
@@ -1108,10 +1642,10 @@ function openProfile(): void {
     if (!selectedFile) return;
     if (
       !['image/png', 'image/jpeg', 'image/gif'].includes(selectedFile.type) ||
-      selectedFile.size > 2 * 1024 * 1024
+      selectedFile.size > 10 * 1024 * 1024
     ) {
       file.field.value = '';
-      showError('Choose a PNG, JPEG, or GIF picture up to 2 MB.');
+      showError('Choose a PNG, JPEG, or GIF picture up to 10 MB.');
       return;
     }
     try {
@@ -1151,7 +1685,7 @@ function openProfile(): void {
     el(
       'p',
       'quiet',
-      'PNG, JPEG, or GIF · up to 2 MB. Animated GIFs are supported.',
+      'PNG, JPEG, or GIF · up to 10 MB. Animated GIFs are supported.',
     ),
     remove,
     submit,
@@ -1218,6 +1752,22 @@ async function selectAudioOutput(deviceId: string): Promise<void> {
 
 function openSettings(): void {
   const { body, close } = modal('Settings');
+  const appearance = el('section', 'settings-section');
+  appearance.append(
+    el('h3', '', 'Appearance'),
+    createThemeToggle(),
+    button(
+      'Reset layout to default',
+      () => {
+        leftWidth = 250;
+        rightWidth = 240;
+        rightCollapsed = false;
+        applyLayout();
+        renderMembers();
+      },
+      'button subtle',
+    ),
+  );
   const copy = el(
     'p',
     'muted',
@@ -1311,7 +1861,13 @@ function openSettings(): void {
       save.disabled = false;
     }
   });
-  body.append(copy, form);
+  body.append(
+    appearance,
+    copy,
+    form,
+    button('Check for updates', () => checkForUpdates(), 'text-button'),
+    button('Sign out', () => signOut(), 'text-button danger'),
+  );
   void loadDevices().catch(showError);
 }
 
