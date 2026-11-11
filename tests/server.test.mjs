@@ -202,6 +202,8 @@ test('database migration preserves legacy password hashes and adds friend reques
       .get('legacy-id');
     assert.equal(row.password_version, 1);
     assert.equal(row.banner, null);
+    assert.equal(row.presence_mode, 'online');
+    assert.equal(row.presence_mode, 'online');
     assert.equal(await verifyPassword(row, 'legacy-password'), true);
     assert.equal(await verifyPassword(row, 'wrong-password'), false);
     const created = await createAccount(
@@ -547,6 +549,31 @@ test('message authors can edit/delete and friendships can be removed without del
   assert.ok(deleted.body.deletedAt);
   assert.equal(
     (
+      await request(`/api/conversations/${room.body.id}`, {
+        token: alice.token,
+        method: 'DELETE',
+      })
+    ).status,
+    200,
+  );
+  assert.equal(
+    (
+      await request(`/api/conversations/${room.body.id}/messages`, {
+        token: alice.token,
+      })
+    ).status,
+    403,
+  );
+  assert.equal(
+    (
+      await request(`/api/conversations/${room.body.id}/messages`, {
+        token: bob.token,
+      })
+    ).body.messages.length,
+    1,
+  );
+  assert.equal(
+    (
       await request('/api/friend-requests', {
         token: alice.token,
         method: 'POST',
@@ -581,6 +608,22 @@ test('profile validation accepts PNG/JPEG/GIF and rejects disguised or oversized
   });
   assert.equal(bannerResult.status, 200);
   assert.equal(bannerResult.body.banner, validImages[0]);
+  const statusResult = await request('/api/me', {
+    token: alice.token,
+    method: 'PATCH',
+    body: { presenceMode: 'dnd' },
+  });
+  assert.equal(statusResult.body.presenceMode, 'dnd');
+  assert.equal(
+    (
+      await request('/api/me', {
+        token: alice.token,
+        method: 'PATCH',
+        body: { presenceMode: 'invisible' },
+      })
+    ).status,
+    400,
+  );
   assert.throws(
     () =>
       validateAvatar(

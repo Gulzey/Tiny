@@ -363,9 +363,15 @@ export function createTinyServer({
             body.banner === undefined
               ? user.banner
               : validateAvatar(body.banner);
+          const presenceMode =
+            body.presenceMode === undefined
+              ? user.presenceMode
+              : ['online', 'afk', 'dnd'].includes(body.presenceMode)
+                ? body.presenceMode
+                : fail(400, 'Choose Online, AFK, or Do Not Disturb.');
           db.prepare(
-            'UPDATE users SET display_name=?,avatar=?,banner=? WHERE id=?',
-          ).run(name, avatar, banner, user.id);
+            'UPDATE users SET display_name=?,avatar=?,banner=?,presence_mode=? WHERE id=?',
+          ).run(name, avatar, banner, presenceMode, user.id);
           const friendIds = db
             .prepare('SELECT friend_id FROM friends WHERE user_id=?')
             .all(user.id)
@@ -575,6 +581,32 @@ export function createTinyServer({
           });
           broadcastUsers([user.id, ...members], { type: 'state' });
           return json(201, conversation(id));
+        }
+        const conversationRoute = /^\/api\/conversations\/([^/]+)$/.exec(path);
+        if (conversationRoute && req.method === 'DELETE') {
+          const id = conversationRoute[1];
+          requireMember(user.id, id);
+          for (const connection of sockets.values())
+            if (connection.user.id === user.id && connection.call === id)
+              leaveCall(connection);
+          const remaining = transaction(db, () => {
+            db.prepare(
+              'DELETE FROM members WHERE conversation_id=? AND user_id=?',
+            ).run(id, user.id);
+            const ids = db
+              .prepare('SELECT user_id FROM members WHERE conversation_id=?')
+              .all(id)
+              .map((row) => row.user_id);
+            if (!ids.length) {
+              db.prepare('DELETE FROM messages WHERE conversation_id=?').run(
+                id,
+              );
+              db.prepare('DELETE FROM conversations WHERE id=?').run(id);
+            }
+            return ids;
+          });
+          broadcastUsers([user.id, ...remaining], { type: 'state' });
+          return json(200, { ok: true });
         }
         const messageRoute = /^\/api\/conversations\/([^/]+)\/messages$/.exec(
           path,

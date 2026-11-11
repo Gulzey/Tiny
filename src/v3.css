@@ -131,7 +131,7 @@ html[data-theme='light'] body {
 }
 .dock-actions {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 3px;
 }
 .dock-button {
@@ -327,6 +327,18 @@ body.resizing {
 }
 .presence-label.online {
   color: var(--v3-accent);
+}
+.presence.afk {
+  background: #d5a64b;
+}
+.presence-label.afk {
+  color: #d5a64b;
+}
+.presence.dnd {
+  background: #e2646c;
+}
+.presence-label.dnd {
+  color: #e2646c;
 }
 .context-menu {
   position: fixed;

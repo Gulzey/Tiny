@@ -20,6 +20,7 @@ export const publicUser = (row) =>
     displayName: row.display_name,
     avatar: row.avatar,
     banner: row.banner || null,
+    presenceMode: row.presence_mode || 'online',
   };
 
 export function openDatabase(path) {
@@ -30,7 +31,7 @@ export function openDatabase(path) {
     PRAGMA journal_mode = WAL;
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY, handle TEXT NOT NULL UNIQUE, display_name TEXT NOT NULL,
-      avatar TEXT, banner TEXT, password_hash TEXT NOT NULL, salt TEXT NOT NULL
+      avatar TEXT, banner TEXT, presence_mode TEXT NOT NULL DEFAULT 'online', password_hash TEXT NOT NULL, salt TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS sessions (
       token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), expires_at INTEGER NOT NULL
@@ -70,6 +71,10 @@ export function openDatabase(path) {
     );
   if (!userColumns.some((column) => column.name === 'banner'))
     db.exec('ALTER TABLE users ADD COLUMN banner TEXT');
+  if (!userColumns.some((column) => column.name === 'presence_mode'))
+    db.exec(
+      "ALTER TABLE users ADD COLUMN presence_mode TEXT NOT NULL DEFAULT 'online'",
+    );
   const friendColumns = db.prepare('PRAGMA table_info(friends)').all();
   if (!friendColumns.some((column) => column.name === 'created_at'))
     db.exec('ALTER TABLE friends ADD COLUMN created_at TEXT');

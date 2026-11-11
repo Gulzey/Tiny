@@ -15,6 +15,7 @@ type User = {
   displayName: string;
   avatar?: string | null;
   banner?: string | null;
+  presenceMode?: 'online' | 'afk' | 'dnd';
   friendsSince?: string | null;
 };
 type Message = {
@@ -420,6 +421,13 @@ function userById(id: string): User | undefined {
     : data?.friends.find((u) => u.id === id) ||
         data?.conversations.flatMap((c) => c.members).find((u) => u.id === id);
 }
+function presenceInfo(user: User): { label: string; className: string } {
+  if (!online.has(user.id)) return { label: 'Offline', className: 'offline' };
+  if (user.presenceMode === 'dnd')
+    return { label: 'Do Not Disturb', className: 'dnd' };
+  if (user.presenceMode === 'afk') return { label: 'AFK', className: 'afk' };
+  return { label: 'Online', className: 'online' };
+}
 async function refreshState(): Promise<void> {
   if (stateLoading) {
     stateAgain = true;
@@ -540,15 +548,13 @@ function renderApp(): void {
       'rail-button friends-icon',
     ),
   );
-  for (const chat of data?.conversations.filter((item) => item.isGroup) || []) {
-    const item = button(
-      conversationTitle(chat).slice(0, 1).toUpperCase(),
-      () => selectConversation(chat.id),
-      `rail-button ${selected === chat.id ? 'selected' : ''}`,
-    );
-    item.title = conversationTitle(chat);
-    rail.append(item);
-  }
+  const requests = button('!', openFriendRequests, 'rail-button');
+  requests.title = 'Message and friend requests';
+  requests.setAttribute('aria-label', 'Message and friend requests');
+  const compose = button('+', openNewChat, 'rail-button');
+  compose.title = 'Start a conversation';
+  compose.setAttribute('aria-label', 'Start a conversation');
+  rail.append(requests, compose);
   const sidebar = el('aside', 'sidebar');
   sidebar.id = 'sidebar';
   const main = el('section', 'conversation');
@@ -678,7 +684,15 @@ function renderSidebar(): void {
     el('strong', '', data.user.displayName),
     el('span', 'quiet', `@${data.user.handle}`),
   );
-  profile.append(avatar(data.user), name, el('span', 'profile-edit', 'Edit'));
+  const ownPresence = presenceInfo(data.user);
+  const ownPresenceDot = el('span', `presence ${ownPresence.className}`);
+  ownPresenceDot.title = ownPresence.label;
+  profile.append(
+    avatar(data.user),
+    name,
+    ownPresenceDot,
+    el('span', 'profile-edit', 'Edit'),
+  );
   profile.setAttribute('aria-label', 'Edit profile');
   sidebar.append(top);
   const chatHeading = el('div', 'list-heading');
@@ -755,11 +769,9 @@ function renderSidebar(): void {
   for (const friend of data.friends) {
     const row = button('', () => createChat([friend.id]), 'friend-row');
     row.append(avatar(friend, 'small'), el('span', '', friend.displayName));
-    const presence = el(
-      'span',
-      `presence ${online.has(friend.id) ? 'online' : ''}`,
-    );
-    presence.title = online.has(friend.id) ? 'Online' : 'Offline';
+    const state = presenceInfo(friend);
+    const presence = el('span', `presence ${state.className}`);
+    presence.title = state.label;
     row.append(presence);
     row.setAttribute(
       'aria-label',
@@ -793,18 +805,9 @@ function renderSidebar(): void {
   const settings = button('\u2699', openSettings, 'dock-button');
   settings.setAttribute('aria-label', 'Settings');
   settings.title = 'Settings (Ctrl+,)';
-  const theme = createThemeToggle();
-  theme.textContent = '◐';
-  theme.classList.add('dock-button');
-  theme.textContent = '\u25D0';
-  theme.title = 'Switch theme';
-  const exit = button('↪', () => signOut(), 'dock-button');
-  exit.setAttribute('aria-label', 'Sign out');
-  exit.textContent = '\u21AA';
-  exit.title = 'Sign out';
   mic.title = mic.getAttribute('aria-label') || '';
   deafen.title = deafen.getAttribute('aria-label') || '';
-  actions.append(mic, deafen, settings, theme, exit);
+  actions.append(mic, deafen, settings);
   bottom.append(profile, actions);
   sidebar.append(bottom);
 }
@@ -868,16 +871,13 @@ function renderMembers(): void {
   if (!conversation.isGroup) {
     const user = conversationUser(conversation);
     const card = el('section', 'profile-card');
+    const state = presenceInfo(user);
     card.append(
       profileBanner(user),
       avatar(user, 'large'),
       el('h2', '', user.displayName),
       el('p', 'muted', `@${user.handle}`),
-      el(
-        'span',
-        `presence-label ${online.has(user.id) ? 'online' : ''}`,
-        online.has(user.id) ? 'Online' : 'Offline',
-      ),
+      el('span', `presence-label ${state.className}`, state.label),
     );
     if (user.friendsSince)
       card.append(
@@ -903,11 +903,12 @@ function renderMembers(): void {
   for (const user of sorted) panel.append(userRow(user));
 }
 function userRow(user: User): HTMLButtonElement {
+  const state = presenceInfo(user);
   const row = button('', () => openUserProfile(user), 'member-row');
   row.append(
     avatar(user, 'small'),
     el('span', '', user.displayName),
-    el('span', `presence ${online.has(user.id) ? 'online' : ''}`),
+    el('span', `presence ${state.className}`),
   );
   row.addEventListener('contextmenu', (event) => {
     event.preventDefault();
@@ -919,12 +920,13 @@ function openUserProfile(user: User): void {
   if (!data) return;
   const { body } = modal('Profile');
   const card = el('section', 'profile-card');
+  const state = presenceInfo(user);
   card.append(
     profileBanner(user),
     avatar(user, 'large'),
     el('h2', '', user.displayName),
     el('p', 'muted', `@${user.handle}`),
-    el('p', '', online.has(user.id) ? 'Online' : 'Offline'),
+    el('p', `presence-label ${state.className}`, state.label),
   );
   const friend = data.friends.some((item) => item.id === user.id);
   if (user.id !== data.user.id) {
@@ -1492,6 +1494,26 @@ function openConversationMenu(
         renderSidebar();
       },
     },
+    {
+      label: 'Delete from my account',
+      danger: true,
+      action: async () => {
+        if (
+          !confirm(
+            `Remove ${conversationTitle(conversation)} from your conversations? Other participants keep their history.`,
+          )
+        )
+          return;
+        await api(`/api/conversations/${conversation.id}`, 'DELETE');
+        hiddenConversations.delete(conversation.id);
+        if (selected === conversation.id) {
+          selected = '';
+          messages = [];
+        }
+        await refreshState();
+        renderAll();
+      },
+    },
   ]);
 }
 function openUserMenu(event: MouseEvent, user: User): void {
@@ -1844,6 +1866,33 @@ async function selectAudioOutput(deviceId: string): Promise<void> {
 
 function openSettings(): void {
   const { body, close } = modal('Settings');
+  const account = el('section', 'settings-section');
+  const statusLabel = el('label', 'field', 'Status');
+  const statusSelect = el('select');
+  for (const [value, label] of [
+    ['online', 'Online'],
+    ['afk', 'AFK'],
+    ['dnd', 'Do Not Disturb'],
+  ]) {
+    const option = el('option');
+    option.value = value;
+    option.textContent = label;
+    statusSelect.append(option);
+  }
+  statusSelect.value = data?.user.presenceMode || 'online';
+  statusSelect.addEventListener('change', async () => {
+    statusSelect.disabled = true;
+    try {
+      await api('/api/me', 'PATCH', { presenceMode: statusSelect.value });
+      await refreshState();
+    } catch (error) {
+      showError(error);
+    } finally {
+      statusSelect.disabled = false;
+    }
+  });
+  statusLabel.append(statusSelect);
+  account.append(el('h3', '', 'Account'), statusLabel);
   const appearance = el('section', 'settings-section');
   appearance.append(
     el('h3', '', 'Appearance'),
@@ -1954,6 +2003,7 @@ function openSettings(): void {
     }
   });
   body.append(
+    account,
     appearance,
     copy,
     form,

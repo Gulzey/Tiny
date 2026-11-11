@@ -22,11 +22,21 @@ test('create a local account, sign out, and sign back in', async ({ page }) => {
   const settings = page.getByRole('dialog');
   await expect(settings.getByLabel('Voice input')).toBeVisible();
   await expect(settings.getByLabel('Voice output')).toBeVisible();
+  await settings.getByLabel('Status').selectOption('afk');
+  await expect(page.locator('.profile-button .presence')).toHaveAttribute(
+    'title',
+    'AFK',
+  );
+  await settings.getByLabel('Status').selectOption('afk');
   await settings
     .getByRole('button', { name: 'Save voice settings', exact: true })
     .click();
   await expect(settings).not.toBeVisible();
-  await page.getByRole('button', { name: 'Sign out', exact: true }).click();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Sign out', exact: true })
+    .click();
   await expect(
     page.getByRole('button', { name: 'Sign in', exact: true }),
   ).toBeVisible();

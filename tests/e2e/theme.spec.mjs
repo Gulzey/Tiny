@@ -32,7 +32,11 @@ test('black dark mode is the default and light mode remains optional', async ({
     .getByRole('dialog')
     .getByRole('button', { name: 'Close', exact: true })
     .click();
-  await page.getByRole('button', { name: 'Light mode', exact: true }).click();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Light mode', exact: true })
+    .click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
 });
 
