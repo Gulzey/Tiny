@@ -1,0 +1,477 @@
+:root {
+  --v3-bg: #101d20;
+  --v3-panel: #17292d;
+  --v3-elevated: #203438;
+  --v3-accent: #43c6be;
+  --v3-text: #f1f5f5;
+  --v3-muted: #a2b6b8;
+  --v3-line: rgba(162, 182, 184, 0.14);
+  --violet: var(--v3-accent);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+html[data-theme='light'] {
+  --v3-bg: #f3f8f7;
+  --v3-panel: #fff;
+  --v3-elevated: #e7f0ee;
+  --v3-accent: #087f79;
+  --v3-text: #172326;
+  --v3-muted: #65787b;
+  --v3-line: #d7e4e2;
+}
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  overflow: hidden;
+}
+body {
+  zoom: 1;
+  background: var(--v3-bg);
+  color: var(--v3-text);
+  font-size: 14px;
+}
+.login-page,
+.startup-page {
+  width: 100%;
+  min-height: 100%;
+  height: 100%;
+}
+.login-page {
+  max-width: none;
+  margin: 0;
+  padding: clamp(28px, 6vh, 72px) clamp(24px, 8vw, 120px);
+  display: grid;
+  grid-template-columns: minmax(280px, 560px) minmax(320px, 400px);
+  justify-content: center;
+  align-items: center;
+  gap: clamp(48px, 9vw, 144px);
+  overflow-y: auto;
+  background:
+    radial-gradient(
+      circle at 18% 22%,
+      rgba(67, 198, 190, 0.08),
+      transparent 34%
+    ),
+    var(--v3-bg);
+}
+.welcome {
+  align-self: center;
+  min-height: 0;
+}
+.welcome .brand {
+  margin-bottom: clamp(30px, 7vh, 68px);
+  color: var(--v3-text);
+}
+.welcome h1 {
+  margin: 18px 0;
+  max-width: 520px;
+  font-size: clamp(38px, 5vw, 62px);
+  letter-spacing: -0.045em;
+}
+.welcome > .quiet {
+  margin-top: 34px;
+}
+.login-panel {
+  width: 100%;
+  padding: 30px;
+  border: 1px solid var(--v3-line);
+  border-radius: 16px;
+  background: var(--v3-panel);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.24);
+}
+.login-panel .pill {
+  color: var(--v3-accent);
+}
+.login-form {
+  gap: 15px;
+  margin-top: 22px;
+}
+.password-field {
+  position: relative;
+}
+.password-field input {
+  padding-right: 62px;
+}
+.password-toggle {
+  position: absolute;
+  right: 8px;
+  bottom: 7px;
+  height: 32px;
+  padding: 0 9px;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--v3-muted);
+}
+.startup-page {
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--v3-bg);
+}
+.startup-card {
+  width: min(360px, 100%);
+  text-align: center;
+}
+.startup-card img {
+  width: 70px;
+  height: 70px;
+  margin-bottom: 18px;
+}
+.startup-card h1 {
+  font-size: 24px;
+}
+.startup-card p {
+  margin: 8px 0 20px;
+}
+.app-shell {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  grid-template-columns:
+    68px minmax(228px, var(--left-width, 270px)) 5px minmax(420px, 1fr)
+    5px minmax(220px, var(--right-width, 260px));
+}
+.nav-rail,
+.sidebar,
+.conversation,
+.members-panel {
+  height: 100%;
+  min-height: 0;
+}
+.nav-rail {
+  padding-top: 12px;
+  background: #0c181b;
+}
+.sidebar {
+  background: var(--v3-panel);
+}
+.chat-list {
+  padding: 4px 8px 10px;
+}
+.chat-row {
+  min-height: 54px;
+  padding: 8px;
+}
+.avatar {
+  color: var(--v3-accent);
+}
+.sidebar-bottom {
+  min-height: 64px;
+  grid-template-columns: minmax(0, 1fr) 112px;
+  grid-template-rows: 1fr;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  background: color-mix(in srgb, var(--v3-panel) 78%, #000);
+}
+.dock-actions {
+  grid-template-columns: repeat(3, 36px);
+  justify-content: end;
+}
+.dock-button {
+  width: 36px;
+  height: 36px;
+  padding: 8px;
+}
+.dock-button.active-danger {
+  color: #f08086;
+  background: rgba(224, 75, 86, 0.12);
+}
+.control-icon {
+  width: 20px;
+  height: 20px;
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.control-slash {
+  stroke-width: 2.4;
+}
+.conversation {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  overflow: hidden;
+}
+.conversation > .conversation-header {
+  grid-row: 1;
+}
+.conversation > .call-panel {
+  grid-row: 2;
+}
+.conversation > .message-area {
+  grid-row: 3;
+}
+.conversation > .composer-host {
+  grid-row: 4;
+}
+.conversation-header {
+  min-height: 70px;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  padding: 12px 18px;
+}
+.mobile-back {
+  display: none;
+}
+.header-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+}
+.message-area {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 18px 20px 12px;
+}
+.message-log,
+.composer {
+  width: min(100%, 1100px);
+}
+.message-log {
+  margin: auto;
+}
+.message {
+  gap: 10px;
+  padding: 5px 8px;
+  border-radius: 6px;
+}
+.message + .message:not(.grouped) {
+  margin-top: 8px;
+}
+.message.grouped {
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+.message.grouped .avatar-button {
+  visibility: hidden;
+}
+.message.grouped .message-meta {
+  display: none;
+}
+.message-body {
+  line-height: 1.45;
+}
+.date-separator {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 8px 10px;
+  color: var(--v3-muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.date-separator::before,
+.date-separator::after {
+  content: '';
+  height: 1px;
+  flex: 1;
+  background: var(--v3-line);
+}
+.composer-host {
+  padding: 10px 20px calc(14px + var(--safe-bottom));
+  background: var(--v3-bg);
+}
+.composer {
+  margin: auto;
+  min-height: 48px;
+  border: 1px solid transparent;
+}
+.composer:focus-within {
+  border-color: color-mix(in srgb, var(--v3-accent) 50%, transparent);
+}
+.composer textarea {
+  max-height: 160px;
+  resize: none;
+}
+.composer-hint {
+  display: none;
+}
+.members-panel {
+  padding-top: 16px;
+}
+.profile-card {
+  width: 100%;
+}
+.settings-section {
+  padding: 14px;
+  border: 1px solid var(--v3-line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--v3-elevated) 55%, transparent);
+}
+.settings-section + .settings-section {
+  margin-top: 10px;
+}
+.settings-section h3 {
+  margin: 0 0 12px;
+}
+.audio-processing {
+  display: grid;
+  gap: 8px;
+}
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--v3-text);
+}
+.toggle-row input {
+  width: 17px;
+  height: 17px;
+  margin: 0;
+  accent-color: var(--v3-accent);
+}
+.input-meter {
+  width: 100%;
+  height: 10px;
+  accent-color: var(--v3-accent);
+}
+.modal-body {
+  max-height: min(72vh, 720px);
+  overflow-y: auto;
+}
+@media (max-width: 1100px) {
+  .app-shell {
+    grid-template-columns:
+      60px minmax(220px, var(--left-width, 250px))
+      4px minmax(380px, 1fr);
+  }
+  .resize-handle.right,
+  .members-panel {
+    display: none;
+  }
+  .members-panel.drawer-open {
+    display: block;
+    position: fixed;
+    z-index: 60;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(320px, 88vw);
+    box-shadow: -20px 0 60px rgba(0, 0, 0, 0.4);
+  }
+}
+@media (max-width: 759px) {
+  html,
+  body,
+  #app {
+    min-width: 0;
+  }
+  .login-page {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 24px 16px;
+    gap: 18px;
+  }
+  .welcome {
+    width: min(440px, 100%);
+  }
+  .welcome .brand {
+    margin: 0 0 12px;
+  }
+  .welcome h1 {
+    margin: 8px 0;
+    font-size: 32px;
+  }
+  .welcome .eyebrow,
+  .welcome-copy,
+  .welcome > .quiet {
+    display: none;
+  }
+  .login-panel {
+    width: min(440px, 100%);
+    padding: 22px;
+  }
+  .app-shell,
+  .app-shell.has-conversation {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .nav-rail,
+  .resize-handle,
+  .members-panel {
+    display: none;
+  }
+  .app-shell .sidebar {
+    display: flex;
+    width: 100%;
+  }
+  .app-shell .conversation {
+    display: none;
+  }
+  .app-shell.has-conversation .sidebar {
+    display: none;
+  }
+  .app-shell.has-conversation .conversation {
+    display: grid;
+  }
+  .mobile-back {
+    display: inline-flex;
+    align-items: center;
+    min-height: 38px;
+    padding: 0 10px;
+    border-radius: 7px;
+    background: var(--v3-elevated);
+    color: var(--v3-text);
+  }
+  .conversation-header {
+    grid-template-columns: auto auto minmax(0, 1fr) auto;
+    padding: 9px 10px;
+    gap: 8px;
+  }
+  .members-toggle {
+    display: none;
+  }
+  .conversation-header .call-button {
+    min-width: 42px;
+    font-size: 0;
+  }
+  .conversation-header .call-button::after {
+    content: 'Call';
+    font-size: 12px;
+  }
+  .message-area {
+    padding: 12px 8px;
+  }
+  .message {
+    padding-left: 4px;
+    padding-right: 4px;
+  }
+  .composer-host {
+    padding: 7px 8px calc(8px + var(--safe-bottom));
+  }
+  .composer .button {
+    min-width: 52px;
+  }
+  dialog.modal {
+    width: min(100% - 18px, 560px);
+    max-height: calc(100dvh - 18px);
+  }
+}
+@media (max-height: 620px) and (min-width: 760px) {
+  .login-page {
+    padding-top: 18px;
+    padding-bottom: 18px;
+  }
+  .welcome .brand {
+    margin-bottom: 18px;
+  }
+  .welcome h1 {
+    font-size: 36px;
+  }
+  .welcome > .quiet {
+    display: none;
+  }
+  .login-panel {
+    padding: 20px 24px;
+  }
+}

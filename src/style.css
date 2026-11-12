@@ -19,8 +19,8 @@
   --muted: #9297a5;
   --subtle: #737988;
   --accent: #38bdf8;
-  --violet: #8b5cf6;
-  --primary: #8b5cf6;
+  --violet: #43c6be;
+  --primary: #43c6be;
   --primary-text: #ffffff;
   --danger: #ff9aa6;
   --paper: var(--surface);
@@ -399,7 +399,7 @@ html[data-theme='light'] {
   --muted: #626b7c;
   --subtle: #727a89;
   --accent: #087e69;
-  --violet: #7451bd;
+  --violet: #087f79;
   --primary: #242833;
   --primary-text: #ffffff;
   --danger: #b63850;

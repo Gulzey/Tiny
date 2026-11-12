@@ -181,6 +181,18 @@ test('friends, direct and group chats, live delivery, history, and profile updat
       .click();
     await bob.getByRole('button', { name: /^Join call/ }).click();
     await expect(alice.locator('#call-panel')).toContainText('connected');
+    await bob
+      .locator('#call-panel')
+      .getByRole('button', { name: 'Deafen', exact: true })
+      .click();
+    await expect(bob.locator('.call-media audio')).toHaveJSProperty(
+      'muted',
+      true,
+    );
+    await bob
+      .locator('#call-panel')
+      .getByRole('button', { name: 'Undeafen', exact: true })
+      .click();
     await alice.getByRole('button', { name: 'Mute', exact: true }).click();
     await expect(
       alice.getByRole('button', { name: 'Unmute', exact: true }),

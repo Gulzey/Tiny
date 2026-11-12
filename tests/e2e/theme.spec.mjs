@@ -124,14 +124,18 @@ test('desktop panels resize, persist, collapse, and remain usable at target size
   request,
 }) => {
   const handle = `layout_${Date.now().toString(36)}`;
-  await request.post('http://127.0.0.1:8878/api/auth/local', {
+  const auth = await request.post('http://127.0.0.1:8878/api/auth/local', {
     data: { handle, password: 'test-password', create: true },
   });
+  const { token } = await auth.json();
+  await page.addInitScript(
+    ({ token }) =>
+      sessionStorage.setItem('tiny.token:http://127.0.0.1:8878', token),
+    { token },
+  );
   await page.setViewportSize({ width: 1120, height: 760 });
   await page.goto('/');
-  await page.getByLabel('Handle', { exact: true }).fill(handle);
-  await page.getByLabel('Password', { exact: true }).fill('test-password');
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page.locator('.resize-handle.left')).toBeVisible();
   const left = page.locator('.resize-handle.left');
   await left.focus();
   await left.press('ArrowRight');

@@ -43,7 +43,7 @@ function applyTheme(theme: Theme): void {
   document.documentElement.style.colorScheme = theme;
   document
     .querySelector<HTMLMetaElement>('meta[name="theme-color"]')
-    ?.setAttribute('content', theme === 'dark' ? '#08090b' : '#f3f4f6');
+    ?.setAttribute('content', theme === 'dark' ? '#101d20' : '#f3f8f7');
   for (const button of document.querySelectorAll<HTMLButtonElement>(
     'button[data-theme-toggle]',
   )) {

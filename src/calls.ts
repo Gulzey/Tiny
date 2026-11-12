@@ -33,6 +33,11 @@ interface Options {
   onError: (message: string) => void;
   refreshIce?: () => Promise<RTCIceServer[]>;
 }
+export interface AudioProcessing {
+  noiseSuppression: boolean;
+  echoCancellation: boolean;
+  autoGainControl: boolean;
+}
 
 /** One small mesh call. The server only relays signaling; media uses WebRTC. */
 export class TinyCalls {
@@ -55,6 +60,11 @@ export class TinyCalls {
   private generation = 0;
   private sharingPending = false;
   private backgrounded = false;
+  private processing: AudioProcessing = {
+    noiseSuppression: true,
+    echoCancellation: true,
+    autoGainControl: true,
+  };
 
   constructor(private options: Options) {}
 
@@ -118,13 +128,19 @@ export class TinyCalls {
     }
   }
 
+  async setAudioProcessing(processing: AudioProcessing, apply = true) {
+    this.processing = { ...processing };
+    if (!apply || !this.state.conversationId || !this.microphone) return true;
+    return this.setAudioInput(this.audioInputId);
+  }
+
   private captureMicrophone(deviceId = this.audioInputId) {
     return navigator.mediaDevices.getUserMedia({
       audio: {
         ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
+        echoCancellation: this.processing.echoCancellation,
+        noiseSuppression: this.processing.noiseSuppression,
+        autoGainControl: this.processing.autoGainControl,
       },
       video: false,
     });

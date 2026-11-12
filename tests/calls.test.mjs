@@ -156,6 +156,27 @@ test('selected voice input is used when joining a call', async (t) => {
   assert.deepEqual(constraints.audio.deviceId, { exact: 'usb-headset-mic' });
   assert.equal(constraints.audio.echoCancellation, true);
   assert.equal(constraints.audio.noiseSuppression, true);
+  assert.equal(constraints.audio.autoGainControl, true);
+});
+
+test('saved audio processing choices are applied to the transmitted microphone', async (t) => {
+  const microphone = track();
+  let constraints;
+  const { calls } = fixture(t, {
+    getUserMedia: async (requested) => {
+      constraints = requested;
+      return stream(microphone);
+    },
+  });
+  await calls.setAudioProcessing({
+    noiseSuppression: false,
+    echoCancellation: true,
+    autoGainControl: false,
+  });
+  await calls.join('room-1');
+  assert.equal(constraints.audio.noiseSuppression, false);
+  assert.equal(constraints.audio.echoCancellation, true);
+  assert.equal(constraints.audio.autoGainControl, false);
 });
 
 test('permission denial clears joining state and presents an actionable error', async (t) => {

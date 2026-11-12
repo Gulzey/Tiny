@@ -1,7 +1,7 @@
 import './style.css';
 import './v3.css';
-import './v3.css';
-import { TinyCalls } from './calls';
+import './v4.css';
+import { TinyCalls, type AudioProcessing } from './calls';
 import { initTheme, createThemeToggle } from './theme';
 import { createActivityPolicy } from './activity';
 import tinyLogo from './assets/tiny-logo.svg';
@@ -57,8 +57,23 @@ const serverUrl =
     : productionServer;
 const audioInputKey = `tiny.audio-input:${serverUrl}`;
 const audioOutputKey = `tiny.audio-output:${serverUrl}`;
+const audioSettingsKey = `tiny.audio-settings:${serverUrl}`;
 let audioInputId = localStorage.getItem(audioInputKey) || '';
 let audioOutputId = localStorage.getItem(audioOutputKey) || '';
+let audioSettings: AudioProcessing & { outputVolume: number } = {
+  noiseSuppression: true,
+  echoCancellation: true,
+  autoGainControl: true,
+  outputVolume: 1,
+};
+try {
+  audioSettings = {
+    ...audioSettings,
+    ...JSON.parse(localStorage.getItem(audioSettingsKey) || '{}'),
+  };
+} catch {
+  /* Keep safe defaults when preferences are damaged. */
+}
 const tokenStorage = tauriClient ? localStorage : sessionStorage;
 let token = tokenStorage.getItem(`tiny.token:${serverUrl}`) || '';
 let data: State | null = null;
@@ -166,6 +181,34 @@ function button(
   });
   return node;
 }
+function controlIcon(
+  kind: 'microphone' | 'headphones' | 'settings',
+  crossed = false,
+): SVGSVGElement {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.classList.add('control-icon');
+  const paths = {
+    microphone:
+      '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M8.5 21h7"/>',
+    headphones:
+      '<path d="M4 13v-1a8 8 0 0 1 16 0v1"/><path d="M4 13h3v7H5a2 2 0 0 1-2-2v-3a2 2 0 0 1 1-2Zm16 0h-3v7h2a2 2 0 0 0 2-2v-3a2 2 0 0 0-1-2Z"/>',
+    settings:
+      '<circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.4 1a8 8 0 0 0-1.7-1L14.5 3h-5L9 6.1a8 8 0 0 0-1.7 1l-2.4-1-2 3.4L5 11a7 7 0 0 0 0 2l-2.1 1.5 2 3.4 2.4-1a8 8 0 0 0 1.7 1l.5 3.1h5l.5-3.1a8 8 0 0 0 1.7-1l2.4 1 2-3.4L19 13a7 7 0 0 0 0-1Z"/>',
+  };
+  svg.innerHTML = paths[kind];
+  if (crossed) {
+    const slash = document.createElementNS(
+      'http://www.w3.org/2000/svg',
+      'path',
+    );
+    slash.setAttribute('d', 'M3 3l18 18');
+    slash.classList.add('control-slash');
+    svg.append(slash);
+  }
+  return svg;
+}
 function input(
   label: string,
   name: string,
@@ -252,9 +295,11 @@ async function api<T>(
   const result = await response.json().catch(() => ({}));
   if (!response.ok) {
     if (response.status === 401 && data) void signOut(false);
-    throw new Error(
+    const requestError = new Error(
       result.error || result.message || `Request failed (${response.status}).`,
     );
+    Object.assign(requestError, { status: response.status });
+    throw requestError;
   }
   return result as T;
 }
@@ -277,6 +322,7 @@ function newCallEngine(): void {
     refreshIce,
   });
   void calls.setAudioInput(audioInputId);
+  void calls.setAudioProcessing(audioSettings);
   calls.setBackgrounded(!activity.active);
 }
 newCallEngine();
@@ -324,11 +370,25 @@ function renderLogin(): void {
   handle.field.placeholder = 'e.g. alice';
   handle.field.pattern = '[a-zA-Z0-9_]{3,24}';
   const password = input('Password', 'password', 'password');
+  password.field.setAttribute('aria-label', 'Password');
   password.field.required = true;
   password.field.autocomplete = authCreate
     ? 'new-password'
     : 'current-password';
   password.field.minLength = authCreate ? 12 : 8;
+  const reveal = button(
+    'Show',
+    () => {
+      const hidden = password.field.type === 'password';
+      password.field.type = hidden ? 'text' : 'password';
+      reveal.textContent = hidden ? 'Hide' : 'Show';
+      reveal.setAttribute('aria-pressed', hidden ? 'true' : 'false');
+    },
+    'password-toggle',
+  );
+  reveal.setAttribute('aria-label', 'Show password');
+  password.wrapper.classList.add('password-field');
+  password.wrapper.append(reveal);
   const display = input('Display name', 'displayName');
   display.field.maxLength = 48;
   if (authCreate) display.field.required = true;
@@ -402,6 +462,24 @@ function renderLogin(): void {
   notices.id = 'notices';
   root.append(page, notices);
 }
+function renderStartup(
+  title = 'Opening Tinycord',
+  detail = 'Restoring your secure session…',
+  retry?: () => void,
+): void {
+  root.replaceChildren();
+  const page = el('main', 'startup-page');
+  const logo = el('img');
+  logo.src = tinyLogo;
+  logo.alt = '';
+  const card = el('section', 'startup-card');
+  card.append(logo, el('h1', '', title), el('p', 'muted', detail));
+  if (retry) card.append(button('Try again', retry, 'button primary'));
+  page.append(card);
+  const notices = el('div', 'notices');
+  notices.id = 'notices';
+  root.append(page, notices);
+}
 
 function conversationTitle(conversation: Conversation): string {
   return conversation.isGroup
@@ -456,9 +534,9 @@ async function refreshState(): Promise<void> {
     }
   }
 }
-async function enterApp(): Promise<void> {
+async function enterApp(initialData?: State): Promise<void> {
   destroyed = false;
-  data = await api<State>('/api/state');
+  data = initialData || (await api<State>('/api/state'));
   restoreLayout();
   const remembered = localStorage.getItem(accountKey('last-conversation'));
   selected = data.conversations.some((item) => item.id === remembered)
@@ -466,7 +544,7 @@ async function enterApp(): Promise<void> {
     : data.conversations[0]?.id || '';
   renderApp();
   connect();
-  if (selected) void selectConversation(selected).catch(showError);
+  if (selected) void selectConversation(selected, false).catch(showError);
 }
 function accountKey(name: string): string {
   return `tiny.v3:${serverUrl}:${data?.user.id || 'guest'}:${name}`;
@@ -521,6 +599,10 @@ function renderApp(): void {
   forcePaint = true;
   root.replaceChildren();
   const shell = el('main', 'app-shell');
+  shell.classList.toggle(
+    'has-conversation',
+    Boolean(selected) && window.innerWidth >= 760,
+  );
   shell.style.setProperty('--left-width', `${leftWidth}px`);
   shell.style.setProperty(
     '--right-width',
@@ -555,6 +637,17 @@ function renderApp(): void {
   compose.title = 'Start a conversation';
   compose.setAttribute('aria-label', 'Start a conversation');
   rail.append(requests, compose);
+  for (const group of data?.conversations.filter((item) => item.isGroup) ||
+    []) {
+    const groupButton = button(
+      conversationTitle(group).slice(0, 1).toUpperCase(),
+      () => selectConversation(group.id),
+      `rail-button group-rail-button ${selected === group.id ? 'selected' : ''}`,
+    );
+    groupButton.title = conversationTitle(group);
+    groupButton.setAttribute('aria-label', `Open ${conversationTitle(group)}`);
+    rail.append(groupButton);
+  }
   const sidebar = el('aside', 'sidebar');
   sidebar.id = 'sidebar';
   const main = el('section', 'conversation');
@@ -784,29 +877,34 @@ function renderSidebar(): void {
   sidebar.append(friends);
   const bottom = el('div', 'sidebar-bottom');
   const actions = el('div', 'dock-actions');
-  const mic = button(
-    calls.state.muted ? 'M' : 'Mic',
-    () => calls.toggleMute(),
-    'dock-button',
-  );
+  const mic = button('', () => calls.toggleMute(), 'dock-button');
   mic.setAttribute(
     'aria-label',
     calls.state.muted ? 'Unmute microphone' : 'Mute microphone',
   );
-  const deafen = button(
-    calls.state.deafened ? 'Hear' : 'Audio',
-    () => calls.toggleDeafen(),
-    'dock-button',
-  );
+  mic.append(controlIcon('microphone', calls.state.muted));
+  const deafen = button('', () => calls.toggleDeafen(), 'dock-button');
   deafen.setAttribute(
     'aria-label',
     calls.state.deafened ? 'Undeafen' : 'Deafen',
   );
-  const settings = button('\u2699', openSettings, 'dock-button');
+  deafen.append(controlIcon('headphones', calls.state.deafened));
+  const settings = button('', openSettings, 'dock-button');
   settings.setAttribute('aria-label', 'Settings');
   settings.title = 'Settings (Ctrl+,)';
+  settings.append(controlIcon('settings'));
   mic.title = mic.getAttribute('aria-label') || '';
   deafen.title = deafen.getAttribute('aria-label') || '';
+  mic.classList.toggle('active-danger', calls.state.muted);
+  deafen.classList.toggle('active-danger', calls.state.deafened);
+  mic.addEventListener('contextmenu', (event) => {
+    event.preventDefault();
+    void openAudioDeviceMenu(event, 'input');
+  });
+  deafen.addEventListener('contextmenu', (event) => {
+    event.preventDefault();
+    void openAudioDeviceMenu(event, 'output');
+  });
   actions.append(mic, deafen, settings);
   bottom.append(profile, actions);
   sidebar.append(bottom);
@@ -822,6 +920,14 @@ function renderHeader(): void {
     return;
   }
   const copy = el('div', 'header-copy');
+  const back = button(
+    'Back',
+    () => {
+      selected = '';
+      renderApp();
+    },
+    'mobile-back',
+  );
   copy.append(
     el('h1', '', conversationTitle(conversation)),
     el(
@@ -832,7 +938,11 @@ function renderHeader(): void {
         : `@${conversationUser(conversation).handle}`,
     ),
   );
-  header.append(copy);
+  const headerAvatar = conversation.isGroup
+    ? el('span', 'avatar group-avatar', '✦')
+    : avatar(conversationUser(conversation), 'small');
+  headerAvatar.classList.add('header-avatar');
+  header.append(back, headerAvatar, copy);
   const active = conversation.callParticipants?.length || 0;
   const start = button(
     active ? `Join call · ${active}` : 'Start call',
@@ -850,6 +960,9 @@ function renderHeader(): void {
       () => {
         rightCollapsed = !rightCollapsed;
         applyLayout();
+        document
+          .querySelector('#members-panel')
+          ?.classList.toggle('drawer-open', !rightCollapsed);
         renderHeader();
       },
       'text-button members-toggle',
@@ -964,13 +1077,18 @@ async function joinCall(conversationId: string): Promise<void> {
   calls.configure(await refreshIce(), forceRelayTest);
   await calls.join(conversationId);
 }
-async function selectConversation(id: string): Promise<void> {
+async function selectConversation(
+  id: string,
+  openMobileView = true,
+): Promise<void> {
   if (selected) {
     drafts.set(selected, currentDraft);
     const oldArea = document.querySelector<HTMLElement>('#message-area');
     if (oldArea) scrollPositions.set(selected, oldArea.scrollTop);
   }
   selected = id;
+  if (openMobileView)
+    document.querySelector('.app-shell')?.classList.add('has-conversation');
   localStorage.setItem(accountKey('last-conversation'), id);
   currentDraft = drafts.get(id) || '';
   messages = [];
@@ -1061,11 +1179,33 @@ function renderMessages(loading = false, scroll = true): void {
   const log = el('div', 'message-log');
   log.setAttribute('role', 'log');
   log.setAttribute('aria-label', 'Messages');
+  let previous: Message | undefined;
   for (const message of messages) {
     const user = userById(message.senderId);
+    const date = new Date(message.createdAt);
+    const previousDate = previous ? new Date(previous.createdAt) : null;
+    if (!previousDate || previousDate.toDateString() !== date.toDateString()) {
+      const separator = el(
+        'div',
+        'date-separator',
+        Number.isNaN(date.valueOf())
+          ? ''
+          : date.toLocaleDateString([], {
+              weekday: 'long',
+              month: 'long',
+              day: 'numeric',
+            }),
+      );
+      log.append(separator);
+    }
+    const grouped = Boolean(
+      previous &&
+      previous.senderId === message.senderId &&
+      date.valueOf() - new Date(previous.createdAt).valueOf() < 5 * 60_000,
+    );
     const row = el(
       'article',
-      `message ${message.senderId === data.user.id ? 'own' : ''}`,
+      `message ${message.senderId === data.user.id ? 'own' : ''} ${grouped ? 'grouped' : ''}`,
     );
     row.dataset.messageId = String(message.id);
     if (user) {
@@ -1079,7 +1219,6 @@ function renderMessages(loading = false, scroll = true): void {
     }
     const content = el('div', 'message-content');
     const meta = el('div', 'message-meta');
-    const date = new Date(message.createdAt);
     const time = el(
       'time',
       '',
@@ -1110,6 +1249,7 @@ function renderMessages(loading = false, scroll = true): void {
       openMessageMenu(event, message, user);
     });
     log.append(row);
+    previous = message;
   }
   area.append(log);
   if (scroll) area.scrollTop = area.scrollHeight;
@@ -1127,8 +1267,14 @@ function renderComposer(): void {
   textarea.rows = 1;
   textarea.maxLength = 4000;
   textarea.value = currentDraft;
+  const resizeComposer = () => {
+    textarea.style.height = 'auto';
+    textarea.style.height = `${Math.min(160, textarea.scrollHeight)}px`;
+  };
+  requestAnimationFrame(resizeComposer);
   textarea.addEventListener('input', () => {
     currentDraft = textarea.value;
+    resizeComposer();
   });
   textarea.addEventListener('keydown', (event) => {
     if (event.key === 'Enter' && !event.shiftKey) {
@@ -1306,7 +1452,7 @@ function connect(): void {
       renderSidebar();
       renderHeader();
       void refreshState().catch(showError);
-      if (selected) void selectConversation(selected).catch(showError);
+      if (selected) void selectConversation(selected, false).catch(showError);
     }
     if (packet.type === 'state') void refreshState().catch(showError);
     if (packet.type === 'message') receiveMessage(packet.message);
@@ -1411,6 +1557,53 @@ function modal(title: string): {
   return { dialog, body, close };
 }
 type MenuItem = { label: string; action: () => unknown; danger?: boolean };
+async function openAudioDeviceMenu(
+  event: MouseEvent,
+  kind: 'input' | 'output',
+): Promise<void> {
+  if (!navigator.mediaDevices?.enumerateDevices) {
+    showError('Audio device selection is unavailable in this window.');
+    return;
+  }
+  const outputSupported = supportsAudioOutputSelection();
+  const devices = (await navigator.mediaDevices.enumerateDevices()).filter(
+    (device) =>
+      device.kind === (kind === 'input' ? 'audioinput' : 'audiooutput'),
+  );
+  const selected = kind === 'input' ? audioInputId : audioOutputId;
+  const items: MenuItem[] = [
+    {
+      label: `${selected ? '' : '✓ '}Windows default ${kind === 'input' ? 'microphone' : 'output'}`,
+      action: async () => {
+        if (kind === 'input') {
+          if (await calls.setAudioInput('')) {
+            audioInputId = '';
+            localStorage.setItem(audioInputKey, '');
+          }
+        } else await selectAudioOutput('');
+      },
+    },
+  ];
+  if (!(kind === 'output' && !outputSupported)) {
+    for (const [index, device] of devices.entries())
+      items.push({
+        label: `${device.deviceId === selected ? '✓ ' : ''}${device.label || `${kind === 'input' ? 'Microphone' : 'Output'} ${index + 1}`}`,
+        action: async () => {
+          if (kind === 'input') {
+            if (await calls.setAudioInput(device.deviceId)) {
+              audioInputId = device.deviceId;
+              localStorage.setItem(audioInputKey, device.deviceId);
+            }
+          } else await selectAudioOutput(device.deviceId);
+        },
+      });
+  }
+  items.push({
+    label: 'Voice & Audio settings…',
+    action: openSettings,
+  });
+  openContextMenu(event, items);
+}
 function openContextMenu(event: MouseEvent, items: MenuItem[]): void {
   document.querySelector('.context-menu')?.remove();
   const menu = el('div', 'context-menu');
@@ -1838,6 +2031,7 @@ function supportsAudioOutputSelection(): boolean {
 
 async function applyAudioOutput(node: HTMLMediaElement): Promise<void> {
   if (!(node instanceof HTMLAudioElement)) return;
+  node.volume = Math.max(0, Math.min(1, audioSettings.outputVolume));
   const sink = node as AudioSinkElement;
   if (!sink.setSinkId) return;
   await sink.setSinkId(audioOutputId);
@@ -1865,7 +2059,7 @@ async function selectAudioOutput(deviceId: string): Promise<void> {
 }
 
 function openSettings(): void {
-  const { body, close } = modal('Settings');
+  const { dialog, body, close } = modal('Settings');
   const account = el('section', 'settings-section');
   const statusLabel = el('label', 'field', 'Status');
   const statusSelect = el('select');
@@ -1921,6 +2115,106 @@ function openSettings(): void {
   const outputLabel = el('label', 'field', 'Voice output');
   const outputSelect = el('select');
   outputSelect.name = 'audioOutput';
+  const processingBox = el('div', 'audio-processing');
+  const processingInputs = new Map<keyof AudioProcessing, HTMLInputElement>();
+  for (const [key, label] of [
+    ['noiseSuppression', 'Noise suppression'],
+    ['echoCancellation', 'Echo cancellation'],
+    ['autoGainControl', 'Automatic gain control'],
+  ] as const) {
+    const row = el('label', 'toggle-row');
+    const toggle = el('input');
+    toggle.type = 'checkbox';
+    toggle.checked = audioSettings[key];
+    processingInputs.set(key, toggle);
+    row.append(toggle, el('span', '', label));
+    processingBox.append(row);
+  }
+  const outputVolumeLabel = el('label', 'field', 'Output volume');
+  const outputVolume = el('input');
+  outputVolume.type = 'range';
+  outputVolume.min = '0';
+  outputVolume.max = '100';
+  outputVolume.value = String(Math.round(audioSettings.outputVolume * 100));
+  outputVolume.addEventListener('input', () => {
+    const volume = Number(outputVolume.value) / 100;
+    for (const node of mediaNodes.values())
+      if (node instanceof HTMLAudioElement) node.volume = volume;
+  });
+  outputVolumeLabel.append(outputVolume);
+  const meterLabel = el('label', 'field', 'Microphone level');
+  const meter = el('progress', 'input-meter');
+  meter.max = 100;
+  meter.value = 0;
+  meterLabel.append(meter);
+  const monitorRow = el('label', 'toggle-row');
+  const monitor = el('input');
+  monitor.type = 'checkbox';
+  monitor.disabled = true;
+  monitorRow.append(monitor, el('span', '', 'Hear microphone during test'));
+  let testStream: MediaStream | null = null;
+  let testAudio: HTMLAudioElement | null = null;
+  let testContext: AudioContext | null = null;
+  let meterFrame = 0;
+  const stopTest = () => {
+    cancelAnimationFrame(meterFrame);
+    testAudio?.pause();
+    if (testAudio) testAudio.srcObject = null;
+    testAudio = null;
+    void testContext?.close();
+    testContext = null;
+    testStream?.getTracks().forEach((track) => track.stop());
+    testStream = null;
+    meter.value = 0;
+    monitor.checked = false;
+    monitor.disabled = true;
+    testButton.textContent = 'Test microphone';
+  };
+  const testButton = button(
+    'Test microphone',
+    async () => {
+      if (testStream) {
+        stopTest();
+        return;
+      }
+      testStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          ...(inputSelect.value
+            ? { deviceId: { exact: inputSelect.value } }
+            : {}),
+          noiseSuppression: processingInputs.get('noiseSuppression')!.checked,
+          echoCancellation: processingInputs.get('echoCancellation')!.checked,
+          autoGainControl: processingInputs.get('autoGainControl')!.checked,
+        },
+        video: false,
+      });
+      testContext = new AudioContext();
+      const analyser = testContext.createAnalyser();
+      analyser.fftSize = 256;
+      testContext.createMediaStreamSource(testStream).connect(analyser);
+      const values = new Uint8Array(analyser.frequencyBinCount);
+      const draw = () => {
+        analyser.getByteFrequencyData(values);
+        meter.value = Math.min(100, (Math.max(...values) / 255) * 120);
+        meterFrame = requestAnimationFrame(draw);
+      };
+      draw();
+      monitor.disabled = false;
+      testButton.textContent = 'Stop microphone test';
+    },
+    'button subtle',
+  );
+  monitor.addEventListener('change', () => {
+    if (!testStream) return;
+    if (!testAudio) {
+      testAudio = new Audio();
+      testAudio.srcObject = testStream;
+      testAudio.volume = 0.35;
+    }
+    if (monitor.checked) void testAudio.play().catch(showError);
+    else testAudio.pause();
+  });
+  dialog.addEventListener('close', stopTest, { once: true });
   const help = el('p', 'quiet', 'Loading available audio devicesâ€¦');
   const refresh = button('Refresh devices', async () => {
     refresh.disabled = true;
@@ -1973,6 +2267,9 @@ function openSettings(): void {
     const devices = await navigator.mediaDevices.enumerateDevices();
     const inputs = devices.filter((device) => device.kind === 'audioinput');
     const outputs = devices.filter((device) => device.kind === 'audiooutput');
+    const supported = navigator.mediaDevices.getSupportedConstraints?.() || {};
+    for (const [key, toggle] of processingInputs)
+      toggle.disabled = supported[key] === false;
     fill(inputSelect, inputs, audioInputId, 'Windows default microphone');
     fill(outputSelect, outputs, audioOutputId, 'Windows default speaker');
     outputSelect.disabled = !supportsAudioOutputSelection();
@@ -1986,15 +2283,39 @@ function openSettings(): void {
 
   inputLabel.append(inputSelect);
   outputLabel.append(outputSelect);
-  form.append(inputLabel, outputLabel, help, refresh, save);
+  form.append(
+    inputLabel,
+    outputLabel,
+    outputVolumeLabel,
+    processingBox,
+    meterLabel,
+    monitorRow,
+    testButton,
+    help,
+    refresh,
+    save,
+  );
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     save.disabled = true;
     try {
+      const nextProcessing: AudioProcessing = {
+        noiseSuppression: processingInputs.get('noiseSuppression')!.checked,
+        echoCancellation: processingInputs.get('echoCancellation')!.checked,
+        autoGainControl: processingInputs.get('autoGainControl')!.checked,
+      };
+      await calls.setAudioProcessing(nextProcessing, false);
       if (!(await calls.setAudioInput(inputSelect.value))) return;
       audioInputId = inputSelect.value;
       localStorage.setItem(audioInputKey, audioInputId);
       await selectAudioOutput(outputSelect.value);
+      audioSettings = {
+        ...nextProcessing,
+        outputVolume: Number(outputVolume.value) / 100,
+      };
+      localStorage.setItem(audioSettingsKey, JSON.stringify(audioSettings));
+      await Promise.all([...mediaNodes.values()].map(applyAudioOutput));
+      stopTest();
       close();
     } catch (error) {
       if (!(error instanceof DOMException)) showError(error);
@@ -2169,14 +2490,30 @@ window.addEventListener('beforeunload', () => {
   calls.destroy();
 });
 async function bootstrap(): Promise<void> {
-  renderLogin();
-  if (!token) return;
+  if (!token) {
+    renderLogin();
+    return;
+  }
+  renderStartup();
   try {
-    await api('/api/config');
-    calls.configure(await refreshIce(), forceRelayTest);
-    await enterApp();
+    const [iceServers, initialData] = await Promise.all([
+      refreshIce(),
+      api<State>('/api/state'),
+    ]);
+    calls.configure(iceServers, forceRelayTest);
+    await enterApp(initialData);
   } catch (error) {
-    showError(error);
+    if ((error as Error & { status?: number }).status === 401) {
+      tokenStorage.removeItem(`tiny.token:${serverUrl}`);
+      token = '';
+      renderLogin();
+      return;
+    }
+    renderStartup(
+      'Tinycord could not connect',
+      error instanceof Error ? error.message : 'Check your connection.',
+      () => void bootstrap(),
+    );
   }
 }
 void bootstrap();
