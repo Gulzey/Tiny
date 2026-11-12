@@ -159,18 +159,17 @@ test('friends, direct and group chats, live delivery, history, and profile updat
     await dialog
       .getByRole('checkbox', { name: new RegExp(handles[2]) })
       .check();
-    await dialog.getByLabel(/group name/i).fill(`Garden ${suffix}`);
+    const groupName = `Garden ${suffix}`;
+    await dialog.getByLabel(/group name/i).fill(groupName);
     await dialog.getByRole('button', { name: /create chat/i }).click();
     await expect(
-      alice.getByText(`Garden ${suffix}`, { exact: true }).last(),
+      alice.getByText(groupName, { exact: true }).last(),
     ).toBeVisible();
     await alice
       .getByRole('textbox', { name: /message/i })
       .fill('A little group hello');
     await alice.getByRole('button', { name: /^send/i }).click();
-    await bob
-      .getByRole('button', { name: new RegExp(`Garden ${suffix}`) })
-      .click();
+    await bob.getByRole('button', { name: new RegExp(groupName) }).click();
     await expect(
       bob.getByRole('log').getByText('A little group hello', { exact: true }),
     ).toBeVisible();
@@ -259,6 +258,30 @@ test('friends, direct and group chats, live delivery, history, and profile updat
       stored.conversations.some((c) => c.isGroup && c.members.length === 3),
     ).toBe(true);
     await alice.screenshot({ path: 'test-results/tiny-chat.png' });
+
+    // Letter shortcuts in the far-left rail expose the same safe removal
+    // action as conversation rows. Removing it leaves other members' history.
+    const groupShortcut = alice.getByRole('button', {
+      name: `Open ${groupName}`,
+      exact: true,
+    });
+    await groupShortcut.click({ button: 'right' });
+    await expect(alice.getByRole('menu')).toContainText(
+      'Delete from my account',
+    );
+    alice.once('dialog', (confirmation) => confirmation.accept());
+    await alice
+      .getByRole('menuitem', { name: 'Delete from my account', exact: true })
+      .click();
+    await expect(groupShortcut).toHaveCount(0);
+    const bobState = await request.get(`${server}/api/state`, {
+      headers: { Authorization: `Bearer ${users[1].token}` },
+    });
+    expect(
+      (await bobState.json()).conversations.some(
+        (conversation) => conversation.title === groupName,
+      ),
+    ).toBe(true);
   } finally {
     await contextA.close();
     await contextB.close();

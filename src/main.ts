@@ -637,15 +637,21 @@ function renderApp(): void {
   compose.title = 'Start a conversation';
   compose.setAttribute('aria-label', 'Start a conversation');
   rail.append(requests, compose);
-  for (const group of data?.conversations.filter((item) => item.isGroup) ||
-    []) {
+  for (const group of data?.conversations.filter(
+    (item) => item.isGroup && !hiddenConversations.has(item.id),
+  ) || []) {
     const groupButton = button(
       conversationTitle(group).slice(0, 1).toUpperCase(),
       () => selectConversation(group.id),
       `rail-button group-rail-button ${selected === group.id ? 'selected' : ''}`,
     );
-    groupButton.title = conversationTitle(group);
+    groupButton.dataset.conversationId = group.id;
+    groupButton.title = `${conversationTitle(group)} — right-click for options`;
     groupButton.setAttribute('aria-label', `Open ${conversationTitle(group)}`);
+    groupButton.addEventListener('contextmenu', (event) => {
+      event.preventDefault();
+      openConversationMenu(event, group);
+    });
     rail.append(groupButton);
   }
   const sidebar = el('aside', 'sidebar');
@@ -1684,6 +1690,7 @@ function openConversationMenu(
       action: () => {
         hiddenConversations.add(conversation.id);
         saveConversationPreferences();
+        removeGroupShortcut(conversation.id);
         renderSidebar();
       },
     },
@@ -1702,12 +1709,22 @@ function openConversationMenu(
         if (selected === conversation.id) {
           selected = '';
           messages = [];
+          document
+            .querySelector('.app-shell')
+            ?.classList.remove('has-conversation');
         }
+        removeGroupShortcut(conversation.id);
         await refreshState();
         renderAll();
       },
     },
   ]);
+}
+function removeGroupShortcut(conversationId: string): void {
+  for (const shortcut of document.querySelectorAll<HTMLElement>(
+    '.group-rail-button',
+  ))
+    if (shortcut.dataset.conversationId === conversationId) shortcut.remove();
 }
 function openUserMenu(event: MouseEvent, user: User): void {
   if (!data) return;
